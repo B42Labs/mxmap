@@ -33,7 +33,12 @@ jobs:
         continue-on-error: true
         run: uv run validate --country ${{ matrix.country }}
       - run: uv run build-site --country ${{ matrix.country }}
-      - name: Commit and push if changed
+      - name: Upload site artifact
+        if: steps.validate.outcome == 'success'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: sites/${{ matrix.country }}
+      - name: Commit data if changed
         if: steps.validate.outcome == 'success'
         run: |
           git diff --quiet sites/${{ matrix.country }}/ && exit 0
@@ -71,9 +76,5 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/upload-pages-artifact@v4
-        with:
-          path: sites/de
       - id: deployment
         uses: actions/deploy-pages@v4
