@@ -14,10 +14,6 @@ def load_country(code: str) -> Dynaconf:
     sparql_path = Path(settings.sparql_query_file)
     settings.set("sparql_query", sparql_path.read_text())
 
-    # Convert ASN keys from string to int
-    raw_asns = settings.get("domestic_isp_asns", {})
-    settings.set("domestic_isp_asns", {int(k): v for k, v in raw_asns.items()})
-
     # Merge skip_domains with country-specific extras
     base_skip = set(settings.get("skip_domains", []))
     extra_skip = set(settings.get("skip_domains_extra", []))

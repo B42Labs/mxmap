@@ -12,11 +12,8 @@ from mail_sovereignty.classify import (
     detect_gateway,
 )
 from mail_sovereignty.constants import (
-    CONCURRENCY_POSTPROCESS,
-    CONCURRENCY_SMTP,
     EMAIL_RE,
     SKIP_DOMAINS,
-    SUBPAGES,
     TYPO3_RE,
 )
 from mail_sovereignty.dns import (
@@ -86,7 +83,7 @@ def extract_email_domains(html: str, skip_domains: set[str] | None = None) -> se
 
 def build_urls(domain: str, subpages: list[str] | None = None) -> list[str]:
     """Build candidate URLs to scrape, trying www. prefix first."""
-    _subpages = subpages if subpages is not None else SUBPAGES
+    _subpages = subpages if subpages is not None else ["/kontakt", "/contact", "/impressum"]
     domain = domain.strip()
     if domain.startswith(("http://", "https://")):
         parsed = urlparse(domain)
@@ -146,10 +143,6 @@ async def process_unknown(
     _skip_domains = (
         country_config.skip_domains_merged if country_config else None
     )  # pragma: no cover
-    _classify_kwargs: dict = {}
-    if country_config:  # pragma: no cover
-        _classify_kwargs["domestic_isp_asns"] = country_config.domestic_isp_asns
-        _classify_kwargs["domestic_isp_label"] = country_config.domestic_isp_label
 
     async with semaphore:
         bfs = m["bfs"]
@@ -179,7 +172,6 @@ async def process_unknown(
                     mx_asns=mx_asns or None,
                     resolved_spf=spf_resolved or None,
                     autodiscover=autodiscover or None,
-                    **_classify_kwargs,
                 )
                 gateway = detect_gateway(mx)
                 print(
@@ -209,150 +201,6 @@ async def process_unknown(
         return m
 
 
-MANUAL_OVERRIDES = {
-    # Neuchatel canton: all use @ne.ch (cantonal mail gateway operated by SIEN,
-    # MX points to cantonal servers nemx9a.ne.ch / ne2mx9a.ne.ch on SWITCH AS559)
-    "6404": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # Boudry
-    "6408": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # Cortaillod
-    "6413": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # Rochefort
-    "6416": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # Milvignes
-    "6417": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # La Grande Beroche
-    "6432": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # La Brevine
-    "6433": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # Brot-Plamboz
-    "6434": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # Le Cerneux-Pequignot
-    "6435": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # La Chaux-du-Milieu
-    "6437": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # Les Ponts-de-Martel
-    "6451": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # Cornaux
-    "6455": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # Le Landeron
-    "6456": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # Lignieres
-    "6504": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # La Cote-aux-Fees
-    "6423": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # La Sagne
-    "6458": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # Neuchatel
-    "6487": {
-        "domain": "ne.ch",
-        "provider": "swiss-isp",
-        "gateway": "cantonal-ne",
-        "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
-        "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-    },  # Val-de-Ruz
-    # Other manual resolutions
-    "261": {
-        "domain": "zuerich.ch",
-        "provider": "independent",
-    },  # Zürich (not gemeinde-zuerich.ch)
-    "422": {
-        "domain": "ruetibeilyssach.ch",
-        "provider": "infomaniak",
-    },  # Rueti bei Lyssach
-    "2056": {
-        "name": "Fétigny-Ménières",
-        "canton": "Kanton Freiburg",
-        "domain": "fetigny-menieres.ch",
-        "provider": "microsoft",
-    },  # Missing from Wikidata
-    "6172": {
-        "domain": "gemeinde-bister.ch",
-        "provider": "microsoft",
-    },  # Bister VS
-}
-
-
 async def run(data_path: Path, country_config=None) -> None:
     with open(data_path, encoding="utf-8") as f:
         data = json.load(f)
@@ -360,29 +208,25 @@ async def run(data_path: Path, country_config=None) -> None:
     muni = data["municipalities"]
 
     # Resolve config values
-    manual_overrides = (  # pragma: no cover
-        country_config.manual_overrides if country_config else MANUAL_OVERRIDES
+    manual_overrides = (
+        country_config.manual_overrides if country_config else {}
     )
-    _concurrency_pp = (  # pragma: no cover
+    _concurrency_pp = (
         country_config.concurrency_postprocess
         if country_config
-        else CONCURRENCY_POSTPROCESS
+        else 10
     )
-    _concurrency_smtp = (  # pragma: no cover
-        country_config.concurrency_smtp if country_config else CONCURRENCY_SMTP
+    _concurrency_smtp = (
+        country_config.concurrency_smtp if country_config else 5
     )
-    _user_agent = (  # pragma: no cover
+    _user_agent = (
         country_config.user_agent
         if country_config
-        else "mxmap.ch/1.0 (https://github.com/davidhuser/mxmap)"
+        else "mxmap/1.0 (https://github.com/B42Labs/mxmap)"
     )
     _ehlo_hostname = (
         country_config.ehlo_hostname if country_config else "mxmap.ch"
-    )  # pragma: no cover
-    _classify_kwargs: dict = {}
-    if country_config:  # pragma: no cover
-        _classify_kwargs["domestic_isp_asns"] = country_config.domestic_isp_asns
-        _classify_kwargs["domestic_isp_label"] = country_config.domestic_isp_label
+    )
 
     # Step 1: Apply manual overrides
     print("Applying manual overrides...")
@@ -444,7 +288,6 @@ async def run(data_path: Path, country_config=None) -> None:
                 mx_asns=mx_asns or None,
                 resolved_spf=spf_resolved or None,
                 autodiscover=autodiscover or None,
-                **_classify_kwargs,
             )
             gateway = detect_gateway(mx) if mx else None
             return (
@@ -507,7 +350,6 @@ async def run(data_path: Path, country_config=None) -> None:
                     mx_asns=mx_asns or None,
                     resolved_spf=spf_resolved or None,
                     autodiscover=autodiscover or None,
-                    **_classify_kwargs,
                 )
                 gateway = detect_gateway(mx)
                 m["mx"] = mx

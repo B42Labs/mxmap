@@ -17,7 +17,7 @@ def sample_municipality():
 
 
 @pytest.fixture
-def sovereign_municipality():
+def independent_municipality():
     return {
         "bfs": "6404",
         "name": "Boudry",
@@ -25,7 +25,7 @@ def sovereign_municipality():
         "domain": "ne.ch",
         "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
         "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-        "provider": "swiss-isp",
+        "provider": "independent",
         "gateway": "cantonal-ne",
     }
 
@@ -48,7 +48,7 @@ def sample_data_json(tmp_path):
     data = {
         "generated": "2025-01-01T00:00:00Z",
         "total": 3,
-        "counts": {"microsoft": 1, "swiss-isp": 1, "unknown": 1},
+        "counts": {"microsoft": 1, "independent": 1, "unknown": 1},
         "municipalities": {
             "351": {
                 "bfs": "351",
@@ -66,7 +66,7 @@ def sample_data_json(tmp_path):
                 "domain": "ne.ch",
                 "mx": ["nemx9a.ne.ch", "ne2mx9a.ne.ch"],
                 "spf": "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all",
-                "provider": "swiss-isp",
+                "provider": "independent",
                 "gateway": "cantonal-ne",
             },
             "9999": {

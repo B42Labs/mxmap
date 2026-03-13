@@ -19,26 +19,7 @@ MIN_AVERAGE_SCORE = int(os.environ.get("MIN_AVERAGE_SCORE", "70"))
 MIN_HIGH_CONFIDENCE_PCT = int(os.environ.get("MIN_HIGH_CONFIDENCE_PCT", "80"))
 HIGH_CONFIDENCE_THRESHOLD = 80
 
-MANUAL_OVERRIDE_BFS = {
-    "6404",
-    "6408",
-    "6413",
-    "6416",
-    "6417",
-    "6423",
-    "6432",
-    "6433",
-    "6434",
-    "6435",
-    "6437",
-    "6451",
-    "6455",
-    "6456",
-    "6458",
-    "6487",
-    "6504",
-    "422",
-}
+MANUAL_OVERRIDE_BFS: set[str] = set()
 
 
 POTENTIAL_GATEWAY_THRESHOLD = 5

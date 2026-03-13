@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 import httpx
 
 from mail_sovereignty.classify import classify, detect_gateway
-from mail_sovereignty.constants import CONCURRENCY, SPARQL_QUERY, SPARQL_URL
+from mail_sovereignty.constants import SPARQL_URL
 from mail_sovereignty.dns import (
     lookup_autodiscover,
     lookup_mx,
@@ -122,9 +122,9 @@ async def fetch_wikidata(
         sparql_url = country_config.sparql_url
         label = country_config.country_code.upper()
     else:
-        sparql_query = SPARQL_QUERY
+        sparql_query = ""
         sparql_url = SPARQL_URL
-        label = "Swiss"
+        label = "Unknown"
 
     if use_cache:
         cached = _load_cache(cache_path)
@@ -241,11 +241,6 @@ async def scan_municipality(
         mx_asns = await resolve_mx_asns(mx) if mx else set()
         autodiscover = await lookup_autodiscover(domain) if domain else {}
 
-        classify_kwargs: dict = {}
-        if country_config:
-            classify_kwargs["domestic_isp_asns"] = country_config.domestic_isp_asns
-            classify_kwargs["domestic_isp_label"] = country_config.domestic_isp_label
-
         provider = classify(
             mx,
             spf,
@@ -253,7 +248,6 @@ async def scan_municipality(
             mx_asns=mx_asns or None,
             resolved_spf=spf_resolved or None,
             autodiscover=autodiscover or None,
-            **classify_kwargs,
         )
         gateway = detect_gateway(mx) if mx else None
 
@@ -279,6 +273,21 @@ async def scan_municipality(
         return entry
 
 
+def _format_counts(counts: dict[str, int]) -> str:
+    """Format provider counts as a compact status line."""
+    parts = []
+    for provider in ["microsoft", "google", "aws"]:
+        if counts.get(provider, 0):
+            parts.append(f"{provider}={counts[provider]}")
+    indep = counts.get("independent", 0)
+    if indep:
+        parts.append(f"indep={indep}")
+    unknown = counts.get("unknown", 0)
+    if unknown:
+        parts.append(f"?={unknown}")
+    return "  ".join(parts)
+
+
 async def run(
     output_path: Path,
     country_config=None,
@@ -286,8 +295,9 @@ async def run(
     limit: int | None = None,
     use_cache: bool = True,
 ) -> None:
-    country_code = country_config.country_code if country_config else "ch"
+    country_code = country_config.country_code if country_config else "unknown"
     cache_path = Path("cache") / f"wikidata_{country_code}.json"
+    concurrency = country_config.concurrency if country_config else 20
     municipalities = await fetch_wikidata(
         country_config, cache_path=cache_path, use_cache=use_cache
     )
@@ -306,7 +316,6 @@ async def run(
     print(f"\nScanning {total} municipalities for MX/SPF records...")
     print("(This takes a few minutes with async lookups)\n")
 
-    concurrency = country_config.concurrency if country_config else CONCURRENCY
     semaphore = asyncio.Semaphore(concurrency)
     tasks = [
         scan_municipality(m, semaphore, country_config) for m in municipalities.values()
@@ -322,16 +331,7 @@ async def run(
             counts = {}
             for r in results.values():
                 counts[r["provider"]] = counts.get(r["provider"], 0) + 1
-            print(
-                f"  [{done:4d}/{total}]  "
-                f"MS={counts.get('microsoft', 0)}  "
-                f"Google={counts.get('google', 0)}  "
-                f"Infomaniak={counts.get('infomaniak', 0)}  "
-                f"AWS={counts.get('aws', 0)}  "
-                f"ISP={counts.get('swiss-isp', 0)}  "
-                f"Indep={counts.get('independent', 0)}  "
-                f"?={counts.get('unknown', 0)}"
-            )
+            print(f"  [{done:4d}/{total}]  {_format_counts(counts)}")
 
     counts = {}
     for r in results.values():
@@ -339,13 +339,9 @@ async def run(
 
     print(f"\n{'=' * 50}")
     print(f"RESULTS: {len(results)} municipalities scanned")
-    print(f"  Microsoft/Azure : {counts.get('microsoft', 0):>5}")
-    print(f"  Google/GCP      : {counts.get('google', 0):>5}")
-    print(f"  Infomaniak      : {counts.get('infomaniak', 0):>5}")
-    print(f"  AWS             : {counts.get('aws', 0):>5}")
-    print(f"  Swiss ISP       : {counts.get('swiss-isp', 0):>5}")
-    print(f"  Independent     : {counts.get('independent', 0):>5}")
-    print(f"  Unknown/No MX   : {counts.get('unknown', 0):>5}")
+    for provider in ["microsoft", "google", "aws", "independent", "unknown"]:
+        if counts.get(provider, 0):
+            print(f"  {provider:<15}: {counts[provider]:>5}")
     print(f"{'=' * 50}")
 
     sorted_counts = dict(sorted(counts.items()))

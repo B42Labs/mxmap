@@ -2,7 +2,6 @@
 
 country_code = "ch"
 tld = ".ch"
-domestic_isp_label = "swiss-isp"
 sparql_query_file = "config/sparql/ch.sparql"
 domain_prefixes = ["gemeinde-", "commune-de-"]
 ehlo_hostname = "mxmap.ch"
@@ -35,138 +34,123 @@ manual_override_ids = [
     "422",
 ]
 
-[domestic_isp_asns]
-559 = "SWITCH"
-3303 = "Swisscom"
-6730 = "Sunrise UPC"
-6830 = "Liberty Global (UPC/Sunrise)"
-12399 = "Sunrise"
-13030 = "Init7"
-13213 = "Cyberlink AG"
-15576 = "NTS"
-15600 = "Quickline"
-15796 = "Netzone AG"
-24889 = "Datapark AG"
-29691 = "Hostpoint / Green.ch"
-51786 = "Infomaniak Network SA"
-
 # Neuchatel canton: all use @ne.ch (cantonal mail gateway operated by SIEN,
 # MX points to cantonal servers on SWITCH AS559)
 [manual_overrides."6404"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
 
 [manual_overrides."6408"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
 
 [manual_overrides."6413"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
 
 [manual_overrides."6416"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
 
 [manual_overrides."6417"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
 
 [manual_overrides."6432"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
 
 [manual_overrides."6433"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
 
 [manual_overrides."6434"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
 
 [manual_overrides."6435"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
 
 [manual_overrides."6437"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
 
 [manual_overrides."6451"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
 
 [manual_overrides."6455"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
 
 [manual_overrides."6456"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
 
 [manual_overrides."6504"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
 
 [manual_overrides."6423"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
 
 [manual_overrides."6458"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
 
 [manual_overrides."6487"]
 domain = "ne.ch"
-provider = "swiss-isp"
+provider = "independent"
 gateway = "cantonal-ne"
 mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
 spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
@@ -178,7 +162,7 @@ provider = "independent"
 
 [manual_overrides."422"]
 domain = "ruetibeilyssach.ch"
-provider = "infomaniak"
+provider = "independent"
 
 [manual_overrides."2056"]
 name = "Fétigny-Ménières"
