@@ -178,7 +178,6 @@ const COLORS = {
   microsoft:      '#E83838',
   google:         '#FFAB96',
   aws:            '#FF7A5C',
-  infomaniak:     '#78FFD6',
   [DOMESTIC_ISP_LABEL]: '#2EDBA8',
   'independent':  '#10B898',
   unknown:        '#BFBFBF'
@@ -188,7 +187,6 @@ const LABELS = {
   microsoft:      'Microsoft 365',
   google:         'Google Workspace',
   aws:            'Amazon Web Services',
-  infomaniak:     'Infomaniak',
   [DOMESTIC_ISP_LABEL]: 'Deutscher ISP',
   'independent':  'Unabhängig',
   unknown:        'Unbekannt'
@@ -211,8 +209,6 @@ function classifyHost(host) {
     return { name: 'Google', category: 'hyperscaler' };
   if (['amazonaws','amazonses','awsdns'].some(k => h.includes(k)))
     return { name: 'AWS', category: 'hyperscaler' };
-  if (['infomaniak','mxpool.infomaniak'].some(k => h.includes(k)))
-    return { name: 'Infomaniak', category: 'domestic' };
   if (['mandrillapp.com','mandrill','mcsv.net'].some(k => h.includes(k)))
     return { name: 'Mailchimp', category: 'foreign' };
   if (h.includes('sendgrid'))
@@ -388,7 +384,7 @@ async function loadData() {
       '<div class="legend-content">' +
       '<strong>E-Mail-Provider</strong>' +
       legendGroupHtml('US-basiert', ['microsoft', 'aws', 'google'], dnsData.counts) +
-      legendGroupHtml('Inländisch', ['independent', DOMESTIC_ISP_LABEL, 'infomaniak'], dnsData.counts) +
+      legendGroupHtml('Inländisch', ['independent', DOMESTIC_ISP_LABEL], dnsData.counts) +
       '</div>';
     L.DomEvent.disableClickPropagation(div);
     return div;
@@ -428,7 +424,7 @@ async function loadData() {
           return;
         }
         const color = COLORS[m.provider] || COLORS.unknown;
-        const textColor = ['aws', 'google', 'infomaniak', DOMESTIC_ISP_LABEL, 'unknown'].includes(m.provider) ? '#333' : '#fff';
+        const textColor = ['aws', 'google', DOMESTIC_ISP_LABEL, 'unknown'].includes(m.provider) ? '#333' : '#fff';
         const label = LABELS[m.provider] || m.provider;
 
         let mxSection = '';
