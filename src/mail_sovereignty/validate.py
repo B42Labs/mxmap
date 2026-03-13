@@ -256,19 +256,22 @@ def print_report(scored_entries: list[dict[str, Any]]) -> None:
 
     print("\n  Score distribution:")
     max_bar = 40
-    max_count = max(buckets.values()) if buckets.values() else 1
+    max_count = max(buckets.values()) if buckets.values() else 0
     for label, count in buckets.items():
-        bar = "#" * int(count / max_count * max_bar)
+        bar = "#" * int(count / max_count * max_bar) if max_count else ""
         print(f"    {label:>6}: {count:>5}  {bar}")
 
     high = [e for e in scored_entries if e["score"] >= 80]
     medium = [e for e in scored_entries if 50 <= e["score"] < 80]
     low = [e for e in scored_entries if e["score"] < 50]
 
+    def pct(n: int) -> str:
+        return f"{n / total * 100:.1f}%" if total else "0.0%"
+
     print("\n  Confidence tiers:")
-    print(f"    High   (>=80): {len(high):>5}  ({len(high) / total * 100:.1f}%)")
-    print(f"    Medium (50-79): {len(medium):>5}  ({len(medium) / total * 100:.1f}%)")
-    print(f"    Low    (<50):  {len(low):>5}  ({len(low) / total * 100:.1f}%)")
+    print(f"    High   (>=80): {len(high):>5}  ({pct(len(high))})")
+    print(f"    Medium (50-79): {len(medium):>5}  ({pct(len(medium))})")
+    print(f"    Low    (<50):  {len(low):>5}  ({pct(len(low))})")
 
     avg = sum(scores) / total if total else 0
     print(f"\n  Average score: {avg:.1f}")
