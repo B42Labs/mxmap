@@ -57,6 +57,8 @@ def classify(
     mx_asns: set[int] | None = None,
     resolved_spf: str | None = None,
     autodiscover: dict[str, str] | None = None,
+    domestic_isp_asns: dict[int, str] | None = None,
+    domestic_isp_label: str = "swiss-isp",
 ) -> str:
     """Classify email provider based on MX, CNAME targets, and SPF.
 
@@ -102,12 +104,13 @@ def classify(
         # Gateway relays to independent, fall through
 
     if mx_records:
-        if mx_asns and mx_asns & SWISS_ISP_ASNS.keys():
-            # Check autodiscover for hyperscaler backend behind Swiss ISP relay
+        _isp_asns = domestic_isp_asns or SWISS_ISP_ASNS
+        if mx_asns and mx_asns & _isp_asns.keys():
+            # Check autodiscover for hyperscaler backend behind ISP relay
             ad_provider = classify_from_autodiscover(autodiscover)
             if ad_provider:
                 return ad_provider
-            return "swiss-isp"
+            return domestic_isp_label
         # Check autodiscover for hyperscaler backend behind independent MX
         ad_provider = classify_from_autodiscover(autodiscover)
         if ad_provider:
