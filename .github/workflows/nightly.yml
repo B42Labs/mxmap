@@ -18,37 +18,41 @@ concurrency:
 jobs:
   update-data:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        country: [ch]   # later [ch, de]
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
       - run: uv python install 3.13
       - run: uv sync
-      - run: uv run preprocess
-      - run: uv run postprocess
+      - run: uv run preprocess --country ${{ matrix.country }}
+      - run: uv run postprocess --country ${{ matrix.country }}
       - name: Validate data quality
         id: validate
         continue-on-error: true
-        run: uv run validate
+        run: uv run validate --country ${{ matrix.country }}
+      - run: uv run build-site --country ${{ matrix.country }}
       - name: Commit and push if changed
         if: steps.validate.outcome == 'success'
         run: |
-          git diff --quiet data.json && exit 0
+          git diff --quiet sites/${{ matrix.country }}/ && exit 0
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data.json validation_report.json validation_report.csv
-          git commit -m "chore: nightly data update"
+          git add sites/${{ matrix.country }}/
+          git commit -m "chore: nightly data update (${{ matrix.country }})"
           git push
       - name: Create issue on quality gate failure
         if: steps.validate.outcome == 'failure'
         run: |
           existing=$(gh issue list --label quality-gate --state open --limit 1 --json number -q '.[0].number')
           if [ -n "$existing" ]; then
-            gh issue comment "$existing" --body "Quality gate failed again on $(date -u +%Y-%m-%d). See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            gh issue comment "$existing" --body "Quality gate failed again on $(date -u +%Y-%m-%d) for ${{ matrix.country }}. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
           else
             gh issue create \
-              --title "Quality gate failure: nightly data update" \
+              --title "Quality gate failure: nightly data update (${{ matrix.country }})" \
               --label quality-gate \
-              --body "The nightly data update failed the quality gate on $(date -u +%Y-%m-%d).
+              --body "The nightly data update failed the quality gate on $(date -u +%Y-%m-%d) for ${{ matrix.country }}.
 
           **Action required:** Review the validation report and fix upstream data issues.
 
@@ -70,6 +74,6 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: .
+          path: sites/ch
       - id: deployment
         uses: actions/deploy-pages@v4

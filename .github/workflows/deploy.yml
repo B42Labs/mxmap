@@ -23,6 +23,6 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: .
+          path: sites/ch
       - id: deployment
         uses: actions/deploy-pages@v4
