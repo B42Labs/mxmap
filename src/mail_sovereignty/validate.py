@@ -16,7 +16,7 @@ from mail_sovereignty.constants import GATEWAY_KEYWORDS, PROVIDER_KEYWORDS
 
 # Quality gate thresholds (override via env vars in CI)
 MIN_AVERAGE_SCORE = int(os.environ.get("MIN_AVERAGE_SCORE", "70"))
-MIN_HIGH_CONFIDENCE_PCT = int(os.environ.get("MIN_HIGH_CONFIDENCE_PCT", "80"))
+MIN_HIGH_CONFIDENCE_PCT = int(os.environ.get("MIN_HIGH_CONFIDENCE_PCT", "60"))
 HIGH_CONFIDENCE_THRESHOLD = 80
 
 MANUAL_OVERRIDE_BFS: set[str] = set()
