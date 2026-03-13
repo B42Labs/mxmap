@@ -73,10 +73,46 @@ def guess_domains(
     return sorted(candidates)
 
 
+def _load_cache(cache_path: Path | None) -> dict[str, dict[str, str]] | None:
+    """Load municipalities from a cache file if it exists."""
+    if cache_path and cache_path.exists():
+        with open(cache_path, encoding="utf-8") as f:
+            cached = json.load(f)
+        print(f"  Loaded {len(cached['municipalities'])} municipalities from cache ({cache_path})")
+        print(f"  Cache date: {cached['fetched']}")
+        return cached["municipalities"]
+    return None
+
+
+def _save_cache(cache_path: Path | None, municipalities: dict[str, dict[str, str]]) -> None:
+    """Save municipalities to a cache file."""
+    if not cache_path:
+        return
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "fetched": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "total": len(municipalities),
+        "municipalities": municipalities,
+    }
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    print(f"  Cached {len(municipalities)} municipalities to {cache_path}")
+
+
 async def fetch_wikidata(
-    country_config=None, *, max_retries: int = 4, base_delay: float = 5.0
+    country_config=None,
+    *,
+    max_retries: int = 4,
+    base_delay: float = 5.0,
+    cache_path: Path | None = None,
+    use_cache: bool = True,
 ) -> dict[str, dict[str, str]]:
-    """Query Wikidata for municipalities with retry and exponential backoff."""
+    """Query Wikidata for municipalities with retry and exponential backoff.
+
+    If *use_cache* is True and a cache file exists at *cache_path*, the cached
+    data is returned without hitting Wikidata.  After a successful fetch the
+    result is written to *cache_path* for future runs.
+    """
     if country_config:
         sparql_query = country_config.sparql_query
         sparql_url = country_config.sparql_url
@@ -85,6 +121,12 @@ async def fetch_wikidata(
         sparql_query = SPARQL_QUERY
         sparql_url = SPARQL_URL
         label = "Swiss"
+
+    if use_cache:
+        cached = _load_cache(cache_path)
+        if cached is not None:
+            return cached
+
     print(f"Querying Wikidata for {label} municipalities...")
     headers = {
         "Accept": "application/sparql-results+json",
@@ -161,6 +203,7 @@ async def fetch_wikidata(
         f"  Found {len(municipalities)} municipalities, "
         f"{sum(1 for m in municipalities.values() if m['website'])} with websites"
     )
+    _save_cache(cache_path, municipalities)
     return municipalities
 
 
@@ -237,8 +280,13 @@ async def run(
     country_config=None,
     municipality_filter: str | None = None,
     limit: int | None = None,
+    use_cache: bool = True,
 ) -> None:
-    municipalities = await fetch_wikidata(country_config)
+    country_code = country_config.country_code if country_config else "ch"
+    cache_path = Path("cache") / f"wikidata_{country_code}.json"
+    municipalities = await fetch_wikidata(
+        country_config, cache_path=cache_path, use_cache=use_cache
+    )
 
     if municipality_filter:
         municipalities = {
