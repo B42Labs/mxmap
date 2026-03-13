@@ -5,7 +5,7 @@ tld = ".de"
 sparql_query_file = "config/sparql/de.sparql"
 domain_prefixes = ["gemeinde-", "stadt-", "markt-", "vg-"]
 ehlo_hostname = "mxmap.de"
-user_agent = "mxmap.de/1.0 (https://github.com/davidhuser/mxmap)"
+user_agent = "mxmap.de/1.0 (https://github.com/B42Labs/mxmap)"
 
 skip_domains_extra = ["example.de"]
 
