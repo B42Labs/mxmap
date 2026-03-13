@@ -130,7 +130,7 @@ async def fetch_wikidata(
     print(f"Querying Wikidata for {label} municipalities...")
     headers = {
         "Accept": "application/sparql-results+json",
-        "User-Agent": "MXmap/1.0 (https://github.com/davidhuser/mxmap)",
+        "User-Agent": "B42Labs/mxmap (https://github.com/B42Labs/mxmap)",
     }
     last_exception: Exception | None = None
     async with httpx.AsyncClient(timeout=120) as client:
