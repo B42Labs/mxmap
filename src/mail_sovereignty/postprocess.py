@@ -83,7 +83,9 @@ def extract_email_domains(html: str, skip_domains: set[str] | None = None) -> se
 
 def build_urls(domain: str, subpages: list[str] | None = None) -> list[str]:
     """Build candidate URLs to scrape, trying www. prefix first."""
-    _subpages = subpages if subpages is not None else ["/kontakt", "/contact", "/impressum"]
+    _subpages = (
+        subpages if subpages is not None else ["/kontakt", "/contact", "/impressum"]
+    )
     domain = domain.strip()
     if domain.startswith(("http://", "https://")):
         parsed = urlparse(domain)
@@ -208,25 +210,15 @@ async def run(data_path: Path, country_config=None) -> None:
     muni = data["municipalities"]
 
     # Resolve config values
-    manual_overrides = (
-        country_config.manual_overrides if country_config else {}
-    )
-    _concurrency_pp = (
-        country_config.concurrency_postprocess
-        if country_config
-        else 10
-    )
-    _concurrency_smtp = (
-        country_config.concurrency_smtp if country_config else 5
-    )
+    manual_overrides = country_config.manual_overrides if country_config else {}
+    _concurrency_pp = country_config.concurrency_postprocess if country_config else 10
+    _concurrency_smtp = country_config.concurrency_smtp if country_config else 5
     _user_agent = (
         country_config.user_agent
         if country_config
         else "mxmap/1.0 (https://github.com/B42Labs/mxmap)"
     )
-    _ehlo_hostname = (
-        country_config.ehlo_hostname if country_config else "mxmap.ch"
-    )
+    _ehlo_hostname = country_config.ehlo_hostname if country_config else "mxmap.ch"
 
     # Step 1: Apply manual overrides
     print("Applying manual overrides...")

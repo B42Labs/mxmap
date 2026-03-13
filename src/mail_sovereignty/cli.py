@@ -1,6 +1,5 @@
 import argparse
 import asyncio
-import sys
 from pathlib import Path
 
 
