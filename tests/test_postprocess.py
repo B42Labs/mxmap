@@ -218,16 +218,30 @@ class TestProcessUnknownEnrichment:
                 return_value={"mx.seppmail.cloud": "target.outlook.com"},
             ),
             patch(
-                "mail_sovereignty.postprocess.resolve_mx_asns",
+                "mail_sovereignty.postprocess.resolve_mx_ips",
+                new_callable=AsyncMock,
+                return_value={"mx.seppmail.cloud": ["1.2.3.4"]},
+            ),
+            patch(
+                "mail_sovereignty.postprocess.resolve_asns_from_ips",
                 new_callable=AsyncMock,
                 return_value={8075},
             ),
+            patch(
+                "mail_sovereignty.postprocess.resolve_mx_ptrs",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "mail_sovereignty.postprocess.geoip",
+            ) as mock_geoip,
             patch(
                 "mail_sovereignty.postprocess.lookup_autodiscover",
                 new_callable=AsyncMock,
                 return_value={"autodiscover_cname": "autodiscover.outlook.com"},
             ),
         ):
+            mock_geoip.countries_for_mx_ips.return_value = set()
             result = await process_unknown(client, sem, m)
 
         assert result["provider"] == "microsoft"
@@ -532,6 +546,7 @@ class TestDnsRelookup:
             ehlo_hostname = "test.ch"
             subpages = ["/kontakt"]
             skip_domains_merged = {"example.com"}
+            domestic_config = None
 
         with (
             patch(
@@ -555,10 +570,23 @@ class TestDnsRelookup:
                 return_value={},
             ),
             patch(
-                "mail_sovereignty.postprocess.resolve_mx_asns",
+                "mail_sovereignty.postprocess.resolve_mx_ips",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "mail_sovereignty.postprocess.resolve_asns_from_ips",
                 new_callable=AsyncMock,
                 return_value=set(),
             ),
+            patch(
+                "mail_sovereignty.postprocess.resolve_mx_ptrs",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "mail_sovereignty.postprocess.geoip",
+            ) as mock_geoip_relookup,
             patch(
                 "mail_sovereignty.postprocess.lookup_autodiscover",
                 new_callable=AsyncMock,
@@ -570,6 +598,7 @@ class TestDnsRelookup:
                 return_value={"banner": "", "ehlo": ""},
             ),
         ):
+            mock_geoip_relookup.countries_for_mx_ips.return_value = set()
             await run(path, country_config=FakeConfig())
 
         result = json.loads(path.read_text())
@@ -604,6 +633,7 @@ class TestDnsRelookup:
             ehlo_hostname = "test.ch"
             subpages = ["/kontakt"]
             skip_domains_merged = {"example.com"}
+            domestic_config = None
 
         with (
             patch(
@@ -662,10 +692,23 @@ class TestDnsRetryEnrichment:
                 return_value={"mx.seppmail.cloud": "target.outlook.com"},
             ),
             patch(
-                "mail_sovereignty.postprocess.resolve_mx_asns",
+                "mail_sovereignty.postprocess.resolve_mx_ips",
+                new_callable=AsyncMock,
+                return_value={"mx.seppmail.cloud": ["1.2.3.4"]},
+            ),
+            patch(
+                "mail_sovereignty.postprocess.resolve_asns_from_ips",
                 new_callable=AsyncMock,
                 return_value={8075},
             ),
+            patch(
+                "mail_sovereignty.postprocess.resolve_mx_ptrs",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "mail_sovereignty.postprocess.geoip",
+            ) as mock_geoip_dns,
             patch(
                 "mail_sovereignty.postprocess.lookup_autodiscover",
                 new_callable=AsyncMock,
@@ -677,6 +720,7 @@ class TestDnsRetryEnrichment:
                 return_value={"banner": "", "ehlo": ""},
             ),
         ):
+            mock_geoip_dns.countries_for_mx_ips.return_value = set()
             await run(path)
 
         result = json.loads(path.read_text())

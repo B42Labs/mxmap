@@ -30,6 +30,21 @@ manual_override_ids = []
 [manual_overrides]
 # To be populated as needed
 
+[domestic_isp_asns]
+3320 = "Deutsche Telekom"
+6724 = "Strato"
+8560 = "IONOS"
+24940 = "Hetzner"
+3209 = "Vodafone"
+8422 = "NetCologne"
+29551 = "all-inkl"
+34788 = "netcup"
+47846 = "KAMP"
+34011 = "Host Europe"
+20773 = "Host Europe"
+61157 = "Profihost"
+680 = "DFN"
+
 [map]
 center_lat = 51.1
 center_lon = 10.4

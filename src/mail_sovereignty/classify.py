@@ -1,12 +1,24 @@
+from dataclasses import dataclass
+
 from mail_sovereignty.constants import (
     AWS_KEYWORDS,
     FOREIGN_SENDER_KEYWORDS,
     GATEWAY_KEYWORDS,
     GOOGLE_KEYWORDS,
+    HYPERSCALER_ASNS,
     MICROSOFT_KEYWORDS,
     PROVIDER_KEYWORDS,
     SMTP_BANNER_KEYWORDS,
 )
+
+
+@dataclass(frozen=True)
+class DomesticConfig:
+    asns: dict[int, str]  # curated ASN -> ISP name
+    domains: list[str]  # known domestic domain suffixes
+    country_tlds: list[str]  # e.g. [".de"]
+    target_country: str  # ISO code for GeoIP, e.g. "DE"
+    label: str  # e.g. "german-isp"
 
 
 def classify_from_smtp_banner(banner: str, ehlo: str = "") -> str | None:
@@ -48,6 +60,54 @@ def _check_spf_for_provider(spf_blob: str) -> str | None:
     return None
 
 
+def _check_domestic(
+    mx_records: list[str],
+    mx_asns: set[int] | None,
+    mx_ptrs: dict[str, str] | None,
+    mx_geoip_countries: set[str] | None,
+    domestic: DomesticConfig,
+) -> bool:
+    """Check if MX setup points to a domestic ISP."""
+    asns = mx_asns or set()
+    all_hyperscaler = bool(asns) and asns.issubset(HYPERSCALER_ASNS)
+
+    # Signal 1: ASN in curated domestic list (strongest — always trust)
+    if asns & domestic.asns.keys():
+        return True
+
+    # Signal 2: GeoIP matches target country AND ASNs not all hyperscaler
+    if mx_geoip_countries and domestic.target_country in mx_geoip_countries:
+        if not all_hyperscaler:
+            return True
+
+    # Signals 3-5 are weaker heuristics; skip if all ASNs are hyperscaler
+    # (custom domain on Azure/GCP/AWS should not be classified as domestic ISP)
+    if all_hyperscaler:
+        return False
+
+    # Signal 3: PTR hostname matches domestic domains or country TLD
+    if mx_ptrs:
+        for ptr in mx_ptrs.values():
+            ptr_lower = ptr.lower()
+            if any(ptr_lower.endswith(d) for d in domestic.domains):
+                return True
+            if any(ptr_lower.endswith(tld) for tld in domestic.country_tlds):
+                return True
+
+    # Signal 4: MX hostname matches domestic domains
+    mx_blob = " ".join(mx_records).lower()
+    if any(d in mx_blob for d in domestic.domains):
+        return True
+
+    # Signal 5: MX hostname ends with country TLD
+    for mx in mx_records:
+        mx_lower = mx.lower()
+        if any(mx_lower.endswith(tld) for tld in domestic.country_tlds):
+            return True
+
+    return False
+
+
 def classify(
     mx_records: list[str],
     spf_record: str | None,
@@ -55,6 +115,9 @@ def classify(
     mx_asns: set[int] | None = None,
     resolved_spf: str | None = None,
     autodiscover: dict[str, str] | None = None,
+    mx_ptrs: dict[str, str] | None = None,
+    mx_geoip_countries: set[str] | None = None,
+    domestic: DomesticConfig | None = None,
 ) -> str:
     """Classify email provider based on MX, CNAME targets, and SPF.
 
@@ -103,6 +166,10 @@ def classify(
         ad_provider = classify_from_autodiscover(autodiscover)
         if ad_provider:
             return ad_provider
+        if domestic and _check_domestic(
+            mx_records, mx_asns, mx_ptrs, mx_geoip_countries, domestic
+        ):
+            return domestic.label
         return "independent"
 
     spf_blob = (spf_record or "").lower()

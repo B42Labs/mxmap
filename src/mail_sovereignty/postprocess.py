@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from mail_sovereignty import geoip
 from mail_sovereignty.classify import (
     classify,
     classify_from_smtp_banner,
@@ -20,8 +21,10 @@ from mail_sovereignty.dns import (
     lookup_autodiscover,
     lookup_mx,
     lookup_spf,
-    resolve_mx_asns,
+    resolve_asns_from_ips,
     resolve_mx_cnames,
+    resolve_mx_ips,
+    resolve_mx_ptrs,
     resolve_spf_includes,
 )
 from mail_sovereignty.smtp import fetch_smtp_banner
@@ -159,13 +162,19 @@ async def process_unknown(
             client, domain, subpages=_subpages, skip_domains=_skip_domains
         )
 
+        domestic = country_config.domestic_config if country_config else None
         for email_domain in sorted(email_domains):
             mx = await lookup_mx(email_domain)
             if mx:
                 spf = await lookup_spf(email_domain)
                 spf_resolved = await resolve_spf_includes(spf) if spf else ""
                 mx_cnames = await resolve_mx_cnames(mx)
-                mx_asns = await resolve_mx_asns(mx)
+                mx_ips = await resolve_mx_ips(mx)
+                mx_asns = await resolve_asns_from_ips(mx_ips) if mx_ips else set()
+                mx_ptrs = await resolve_mx_ptrs(mx_ips) if mx_ips else {}
+                mx_geoip_countries = (
+                    geoip.countries_for_mx_ips(mx_ips) if mx_ips else set()
+                )
                 autodiscover = await lookup_autodiscover(email_domain)
                 provider = classify(
                     mx,
@@ -174,6 +183,9 @@ async def process_unknown(
                     mx_asns=mx_asns or None,
                     resolved_spf=spf_resolved or None,
                     autodiscover=autodiscover or None,
+                    mx_ptrs=mx_ptrs or None,
+                    mx_geoip_countries=mx_geoip_countries or None,
+                    domestic=domestic,
                 )
                 gateway = detect_gateway(mx)
                 print(
@@ -192,6 +204,10 @@ async def process_unknown(
                     m["mx_cnames"] = mx_cnames
                 if mx_asns:
                     m["mx_asns"] = sorted(mx_asns)
+                if mx_ptrs:
+                    m["mx_ptrs"] = mx_ptrs
+                if mx_geoip_countries:
+                    m["mx_geoip_countries"] = sorted(mx_geoip_countries)
                 if autodiscover:
                     m["autodiscover"] = autodiscover
                 return m
@@ -219,6 +235,9 @@ async def run(data_path: Path, country_config=None) -> None:
         else "mxmap/1.0 (https://github.com/B42Labs/mxmap)"
     )
     _ehlo_hostname = country_config.ehlo_hostname if country_config else "mxmap.ch"
+    geoip_db = getattr(country_config, "geoip_db", "") if country_config else ""
+    if geoip_db:
+        geoip.init(geoip_db)
 
     # Step 1: Apply manual overrides
     print("Applying manual overrides...")
@@ -264,6 +283,8 @@ async def run(data_path: Path, country_config=None) -> None:
                     f"  {bfs:>5} {muni[bfs]['name']:<30} -> {override.get('provider', '?')}"
                 )
 
+    domestic = country_config.domestic_config if country_config else None
+
     if dns_relookup:
 
         async def _relookup(bfs, domain):
@@ -271,7 +292,10 @@ async def run(data_path: Path, country_config=None) -> None:
             spf = await lookup_spf(domain)
             spf_resolved = await resolve_spf_includes(spf) if spf else ""
             mx_cnames = await resolve_mx_cnames(mx) if mx else {}
-            mx_asns = await resolve_mx_asns(mx) if mx else set()
+            mx_ips = await resolve_mx_ips(mx) if mx else {}
+            mx_asns = await resolve_asns_from_ips(mx_ips) if mx_ips else set()
+            mx_ptrs = await resolve_mx_ptrs(mx_ips) if mx_ips else {}
+            mx_geoip_countries = geoip.countries_for_mx_ips(mx_ips) if mx_ips else set()
             autodiscover = await lookup_autodiscover(domain)
             provider = classify(
                 mx,
@@ -280,6 +304,9 @@ async def run(data_path: Path, country_config=None) -> None:
                 mx_asns=mx_asns or None,
                 resolved_spf=spf_resolved or None,
                 autodiscover=autodiscover or None,
+                mx_ptrs=mx_ptrs or None,
+                mx_geoip_countries=mx_geoip_countries or None,
+                domestic=domestic,
             )
             gateway = detect_gateway(mx) if mx else None
             return (
@@ -289,6 +316,8 @@ async def run(data_path: Path, country_config=None) -> None:
                 spf_resolved,
                 mx_cnames,
                 mx_asns,
+                mx_ptrs,
+                mx_geoip_countries,
                 provider,
                 gateway,
                 autodiscover,
@@ -302,6 +331,8 @@ async def run(data_path: Path, country_config=None) -> None:
             spf_resolved,
             mx_cnames,
             mx_asns,
+            mx_ptrs,
+            mx_geoip_countries,
             provider,
             gateway,
             autodiscover,
@@ -317,6 +348,10 @@ async def run(data_path: Path, country_config=None) -> None:
                 muni[bfs]["mx_cnames"] = mx_cnames
             if mx_asns:
                 muni[bfs]["mx_asns"] = sorted(mx_asns)
+            if mx_ptrs:
+                muni[bfs]["mx_ptrs"] = mx_ptrs
+            if mx_geoip_countries:
+                muni[bfs]["mx_geoip_countries"] = sorted(mx_geoip_countries)
             if autodiscover:
                 muni[bfs]["autodiscover"] = autodiscover
             print(f"  {bfs:>5} {muni[bfs]['name']:<30} -> {provider} (DNS re-lookup)")
@@ -333,7 +368,12 @@ async def run(data_path: Path, country_config=None) -> None:
                 spf = await lookup_spf(m["domain"])
                 spf_resolved = await resolve_spf_includes(spf) if spf else ""
                 mx_cnames = await resolve_mx_cnames(mx)
-                mx_asns = await resolve_mx_asns(mx)
+                mx_ips = await resolve_mx_ips(mx)
+                mx_asns = await resolve_asns_from_ips(mx_ips) if mx_ips else set()
+                mx_ptrs = await resolve_mx_ptrs(mx_ips) if mx_ips else {}
+                mx_geoip_countries = (
+                    geoip.countries_for_mx_ips(mx_ips) if mx_ips else set()
+                )
                 autodiscover = await lookup_autodiscover(m["domain"])
                 provider = classify(
                     mx,
@@ -342,6 +382,9 @@ async def run(data_path: Path, country_config=None) -> None:
                     mx_asns=mx_asns or None,
                     resolved_spf=spf_resolved or None,
                     autodiscover=autodiscover or None,
+                    mx_ptrs=mx_ptrs or None,
+                    mx_geoip_countries=mx_geoip_countries or None,
+                    domestic=domestic,
                 )
                 gateway = detect_gateway(mx)
                 m["mx"] = mx
@@ -355,6 +398,10 @@ async def run(data_path: Path, country_config=None) -> None:
                     m["mx_cnames"] = mx_cnames
                 if mx_asns:
                     m["mx_asns"] = sorted(mx_asns)
+                if mx_ptrs:
+                    m["mx_ptrs"] = mx_ptrs
+                if mx_geoip_countries:
+                    m["mx_geoip_countries"] = sorted(mx_geoip_countries)
                 if autodiscover:
                     m["autodiscover"] = autodiscover
                 print(f"  RECOVERED {m['bfs']:>5} {m['name']:<30} -> {provider}")

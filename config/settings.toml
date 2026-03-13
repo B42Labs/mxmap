@@ -4,6 +4,7 @@ sparql_url = "https://query.wikidata.org/sparql"
 concurrency = 20
 concurrency_postprocess = 10
 concurrency_smtp = 5
+geoip_db = ""
 
 [provider_keywords]
 microsoft = ["mail.protection.outlook.com", "outlook.com", "microsoft", "office365", "onmicrosoft", "spf.protection.outlook.com", "sharepointonline"]

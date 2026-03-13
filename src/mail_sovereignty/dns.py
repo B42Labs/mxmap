@@ -5,6 +5,7 @@ import re
 import dns.asyncresolver
 import dns.exception
 import dns.resolver
+import dns.reversename
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +257,64 @@ async def resolve_mx_asns(mx_hosts: list[str]) -> set[int]:
     asns = set()
     for host in mx_hosts:
         ips = await lookup_a(host)
+        for ip in ips:
+            asn = await lookup_asn_cymru(ip)
+            if asn is not None:
+                asns.add(asn)
+    return asns
+
+
+async def resolve_mx_ips(mx_hosts: list[str]) -> dict[str, list[str]]:
+    """Resolve each MX host to IPv4 addresses. Returns {host: [ip, ...]}."""
+    result: dict[str, list[str]] = {}
+    for host in mx_hosts:
+        ips = await lookup_a(host)
+        if ips:
+            result[host] = ips
+    return result
+
+
+async def lookup_ptr(ip: str) -> str | None:
+    """Reverse DNS lookup for an IP address. Returns PTR hostname or None."""
+    try:
+        rev_name = dns.reversename.from_address(ip)
+    except Exception:
+        return None
+    resolvers = get_resolvers()
+    for i, resolver in enumerate(resolvers):
+        try:
+            answers = await resolver.resolve(rev_name, "PTR")
+            for r in answers:
+                return str(r.target).rstrip(".").lower()
+            return None
+        except dns.resolver.NXDOMAIN:
+            return None
+        except _RETRYABLE as e:
+            logger.debug("PTR %s: %s on resolver %d, retrying", ip, type(e).__name__, i)
+            await asyncio.sleep(0.5)
+            continue
+        except Exception:
+            continue
+    logger.info("PTR %s: all resolvers failed", ip)
+    return None
+
+
+async def resolve_mx_ptrs(mx_ips: dict[str, list[str]]) -> dict[str, str]:
+    """Takes pre-resolved IPs, returns {ip: ptr_hostname}."""
+    result: dict[str, str] = {}
+    for ips in mx_ips.values():
+        for ip in ips:
+            if ip not in result:
+                ptr = await lookup_ptr(ip)
+                if ptr:
+                    result[ip] = ptr
+    return result
+
+
+async def resolve_asns_from_ips(mx_ips: dict[str, list[str]]) -> set[int]:
+    """Takes pre-resolved IPs, returns ASN set."""
+    asns: set[int] = set()
+    for ips in mx_ips.values():
         for ip in ips:
             asn = await lookup_asn_cymru(ip)
             if asn is not None:

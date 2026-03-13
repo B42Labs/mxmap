@@ -8,14 +8,17 @@ from urllib.parse import urlparse
 
 import httpx
 
+from mail_sovereignty import geoip
 from mail_sovereignty.classify import classify, detect_gateway
 from mail_sovereignty.constants import SPARQL_URL
 from mail_sovereignty.dns import (
     lookup_autodiscover,
     lookup_mx,
     lookup_spf,
-    resolve_mx_asns,
+    resolve_asns_from_ips,
     resolve_mx_cnames,
+    resolve_mx_ips,
+    resolve_mx_ptrs,
     resolve_spf_includes,
 )
 
@@ -238,9 +241,13 @@ async def scan_municipality(
 
         spf_resolved = await resolve_spf_includes(spf) if spf else ""
         mx_cnames = await resolve_mx_cnames(mx) if mx else {}
-        mx_asns = await resolve_mx_asns(mx) if mx else set()
+        mx_ips = await resolve_mx_ips(mx) if mx else {}
+        mx_asns = await resolve_asns_from_ips(mx_ips) if mx_ips else set()
+        mx_ptrs = await resolve_mx_ptrs(mx_ips) if mx_ips else {}
+        mx_geoip_countries = geoip.countries_for_mx_ips(mx_ips) if mx_ips else set()
         autodiscover = await lookup_autodiscover(domain) if domain else {}
 
+        domestic = country_config.domestic_config if country_config else None
         provider = classify(
             mx,
             spf,
@@ -248,6 +255,9 @@ async def scan_municipality(
             mx_asns=mx_asns or None,
             resolved_spf=spf_resolved or None,
             autodiscover=autodiscover or None,
+            mx_ptrs=mx_ptrs or None,
+            mx_geoip_countries=mx_geoip_countries or None,
+            domestic=domestic,
         )
         gateway = detect_gateway(mx) if mx else None
 
@@ -268,6 +278,10 @@ async def scan_municipality(
             entry["mx_cnames"] = mx_cnames
         if mx_asns:
             entry["mx_asns"] = sorted(mx_asns)
+        if mx_ptrs:
+            entry["mx_ptrs"] = mx_ptrs
+        if mx_geoip_countries:
+            entry["mx_geoip_countries"] = sorted(mx_geoip_countries)
         if autodiscover:
             entry["autodiscover"] = autodiscover
         return entry
@@ -298,6 +312,9 @@ async def run(
     country_code = country_config.country_code if country_config else "unknown"
     cache_path = Path("cache") / f"wikidata_{country_code}.json"
     concurrency = country_config.concurrency if country_config else 20
+    geoip_db = getattr(country_config, "geoip_db", "") if country_config else ""
+    if geoip_db:
+        geoip.init(geoip_db)
     municipalities = await fetch_wikidata(
         country_config, cache_path=cache_path, use_cache=use_cache
     )
@@ -339,8 +356,12 @@ async def run(
 
     print(f"\n{'=' * 50}")
     print(f"RESULTS: {len(results)} municipalities scanned")
+    known = {"microsoft", "google", "aws", "independent", "unknown"}
     for provider in ["microsoft", "google", "aws", "independent", "unknown"]:
         if counts.get(provider, 0):
+            print(f"  {provider:<15}: {counts[provider]:>5}")
+    for provider in sorted(counts):
+        if provider not in known and counts[provider]:
             print(f"  {provider:<15}: {counts[provider]:>5}")
     print(f"{'=' * 50}")
 

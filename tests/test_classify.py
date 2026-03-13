@@ -1,4 +1,5 @@
 from mail_sovereignty.classify import (
+    DomesticConfig,
     classify,
     classify_from_autodiscover,
     classify_from_mx,
@@ -499,3 +500,153 @@ class TestClassifyFromSmtpBanner:
             )
             == "microsoft"
         )
+
+
+# ── Domestic ISP classification ────────────────────────────────────
+
+
+DE_DOMESTIC = DomesticConfig(
+    asns={3320: "Deutsche Telekom", 24940: "Hetzner", 8560: "IONOS"},
+    domains=["strato.de", "hetzner.com", "ionos.com"],
+    country_tlds=[".de"],
+    target_country="DE",
+    label="german-isp",
+)
+
+CH_DOMESTIC = DomesticConfig(
+    asns={3303: "Swisscom", 29691: "Hostpoint"},
+    domains=["cyon.net", "hostpoint.ch"],
+    country_tlds=[".ch", ".swiss"],
+    target_country="CH",
+    label="swiss-isp",
+)
+
+
+class TestDomesticClassification:
+    def test_asn_match(self):
+        result = classify(
+            ["mail.example.de"],
+            "",
+            mx_asns={24940},
+            domestic=DE_DOMESTIC,
+        )
+        assert result == "german-isp"
+
+    def test_geoip_match_non_hyperscaler(self):
+        result = classify(
+            ["mail.example.de"],
+            "",
+            mx_asns={99999},
+            mx_geoip_countries={"DE"},
+            domestic=DE_DOMESTIC,
+        )
+        assert result == "german-isp"
+
+    def test_geoip_match_hyperscaler_only_stays_independent(self):
+        result = classify(
+            ["mail.example.de"],
+            "",
+            mx_asns={8075},
+            mx_geoip_countries={"DE"},
+            domestic=DE_DOMESTIC,
+        )
+        assert result == "independent"
+
+    def test_geoip_match_no_asns(self):
+        """GeoIP match with no ASN data at all should classify as domestic."""
+        result = classify(
+            ["mail.example.de"],
+            "",
+            mx_asns=None,
+            mx_geoip_countries={"DE"},
+            domestic=DE_DOMESTIC,
+        )
+        assert result == "german-isp"
+
+    def test_ptr_domain_match(self):
+        result = classify(
+            ["mail.example.de"],
+            "",
+            mx_ptrs={"1.2.3.4": "mail.strato.de"},
+            domestic=DE_DOMESTIC,
+        )
+        assert result == "german-isp"
+
+    def test_ptr_tld_match(self):
+        result = classify(
+            ["mail.example.com"],
+            "",
+            mx_ptrs={"1.2.3.4": "server.someprovider.de"},
+            domestic=DE_DOMESTIC,
+        )
+        assert result == "german-isp"
+
+    def test_mx_domain_match(self):
+        result = classify(
+            ["mail.hetzner.com"],
+            "",
+            domestic=DE_DOMESTIC,
+        )
+        assert result == "german-isp"
+
+    def test_mx_tld_match(self):
+        result = classify(
+            ["mail.someprovider.de"],
+            "",
+            domestic=DE_DOMESTIC,
+        )
+        assert result == "german-isp"
+
+    def test_no_domestic_config_stays_independent(self):
+        result = classify(
+            ["mail.example.de"],
+            "",
+            domestic=None,
+        )
+        assert result == "independent"
+
+    def test_hyperscaler_mx_not_overridden(self):
+        result = classify(
+            ["bern-ch.mail.protection.outlook.com"],
+            "",
+            mx_asns={3303},
+            domestic=CH_DOMESTIC,
+        )
+        assert result == "microsoft"
+
+    def test_gateway_with_domestic_backend(self):
+        """Gateway with no hyperscaler SPF + domestic ASN -> domestic."""
+        result = classify(
+            ["filter.seppmail.cloud"],
+            "v=spf1 ip4:1.2.3.4 -all",
+            mx_asns={3303},
+            domestic=CH_DOMESTIC,
+        )
+        assert result == "swiss-isp"
+
+    def test_gateway_with_hyperscaler_spf_not_domestic(self):
+        """Gateway with hyperscaler SPF should return hyperscaler, not domestic."""
+        result = classify(
+            ["filter.seppmail.cloud"],
+            "v=spf1 include:spf.protection.outlook.com -all",
+            mx_asns={3303},
+            domestic=CH_DOMESTIC,
+        )
+        assert result == "microsoft"
+
+    def test_swiss_domestic_ch_tld(self):
+        result = classify(
+            ["mail.gemeinde.ch"],
+            "",
+            domestic=CH_DOMESTIC,
+        )
+        assert result == "swiss-isp"
+
+    def test_no_signals_stays_independent(self):
+        result = classify(
+            ["mail.example.com"],
+            "",
+            mx_asns={99999},
+            domestic=DE_DOMESTIC,
+        )
+        assert result == "independent"

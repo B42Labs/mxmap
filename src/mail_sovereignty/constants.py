@@ -63,6 +63,19 @@ GATEWAY_KEYWORDS = {
     "spamvor": ["spamvor.com"],
 }
 
+HYPERSCALER_ASNS = frozenset(
+    {
+        8068,
+        8069,
+        8075,
+        12076,  # Microsoft / Azure
+        15169,
+        396982,  # Google
+        14618,
+        16509,  # Amazon / AWS
+    }
+)
+
 SMTP_BANNER_KEYWORDS = {
     "microsoft": [
         "microsoft esmtp mail service",

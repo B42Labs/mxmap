@@ -11,11 +11,15 @@ from mail_sovereignty.dns import (
     lookup_autodiscover,
     lookup_cname_chain,
     lookup_mx,
+    lookup_ptr,
     lookup_spf,
     lookup_srv,
     make_resolvers,
+    resolve_asns_from_ips,
     resolve_mx_asns,
     resolve_mx_cnames,
+    resolve_mx_ips,
+    resolve_mx_ptrs,
     resolve_spf_includes,
 )
 
@@ -790,3 +794,147 @@ class TestLookupAutodiscover:
         ):
             result = await lookup_autodiscover("example.ch")
         assert result == {}
+
+
+class TestLookupPtr:
+    async def test_success(self):
+        mock_rr = MagicMock()
+        mock_rr.target = "mail.example.de."
+
+        mock_resolver = AsyncMock()
+        mock_resolver.resolve = AsyncMock(return_value=[mock_rr])
+
+        with patch("mail_sovereignty.dns.get_resolvers", return_value=[mock_resolver]):
+            result = await lookup_ptr("1.2.3.4")
+        assert result == "mail.example.de"
+
+    async def test_nxdomain_returns_none(self):
+        mock_resolver = AsyncMock()
+        mock_resolver.resolve = AsyncMock(side_effect=dns.resolver.NXDOMAIN())
+
+        with patch("mail_sovereignty.dns.get_resolvers", return_value=[mock_resolver]):
+            result = await lookup_ptr("1.2.3.4")
+        assert result is None
+
+    async def test_timeout_retries(self):
+        mock_rr = MagicMock()
+        mock_rr.target = "mail.example.de."
+
+        mock_resolver1 = AsyncMock()
+        mock_resolver1.resolve = AsyncMock(side_effect=dns.exception.Timeout())
+
+        mock_resolver2 = AsyncMock()
+        mock_resolver2.resolve = AsyncMock(return_value=[mock_rr])
+
+        with patch(
+            "mail_sovereignty.dns.get_resolvers",
+            return_value=[mock_resolver1, mock_resolver2],
+        ):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                result = await lookup_ptr("1.2.3.4")
+        assert result == "mail.example.de"
+
+    async def test_all_fail_returns_none(self):
+        resolvers = []
+        for _ in range(3):
+            r = AsyncMock()
+            r.resolve = AsyncMock(side_effect=dns.exception.Timeout())
+            resolvers.append(r)
+
+        with patch("mail_sovereignty.dns.get_resolvers", return_value=resolvers):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                result = await lookup_ptr("1.2.3.4")
+        assert result is None
+
+
+class TestResolveMxIps:
+    async def test_single_host(self):
+        with patch(
+            "mail_sovereignty.dns.lookup_a",
+            new_callable=AsyncMock,
+            return_value=["1.2.3.4"],
+        ):
+            result = await resolve_mx_ips(["mail.example.de"])
+        assert result == {"mail.example.de": ["1.2.3.4"]}
+
+    async def test_multiple_hosts(self):
+        async def _lookup(host):
+            if host == "mail1.example.de":
+                return ["1.2.3.4"]
+            if host == "mail2.example.de":
+                return ["5.6.7.8"]
+            return []
+
+        with patch(
+            "mail_sovereignty.dns.lookup_a",
+            new_callable=AsyncMock,
+            side_effect=_lookup,
+        ):
+            result = await resolve_mx_ips(["mail1.example.de", "mail2.example.de"])
+        assert result == {
+            "mail1.example.de": ["1.2.3.4"],
+            "mail2.example.de": ["5.6.7.8"],
+        }
+
+    async def test_no_ips_excluded(self):
+        with patch(
+            "mail_sovereignty.dns.lookup_a",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            result = await resolve_mx_ips(["mail.example.de"])
+        assert result == {}
+
+
+class TestResolveMxPtrs:
+    async def test_success(self):
+        with patch(
+            "mail_sovereignty.dns.lookup_ptr",
+            new_callable=AsyncMock,
+            return_value="mail.hetzner.com",
+        ):
+            result = await resolve_mx_ptrs({"mail.example.de": ["1.2.3.4"]})
+        assert result == {"1.2.3.4": "mail.hetzner.com"}
+
+    async def test_no_ptr(self):
+        with patch(
+            "mail_sovereignty.dns.lookup_ptr",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await resolve_mx_ptrs({"mail.example.de": ["1.2.3.4"]})
+        assert result == {}
+
+
+class TestResolveAsnsFromIps:
+    async def test_success(self):
+        with patch(
+            "mail_sovereignty.dns.lookup_asn_cymru",
+            new_callable=AsyncMock,
+            return_value=24940,
+        ):
+            result = await resolve_asns_from_ips({"mail.example.de": ["1.2.3.4"]})
+        assert result == {24940}
+
+    async def test_dedup(self):
+        with patch(
+            "mail_sovereignty.dns.lookup_asn_cymru",
+            new_callable=AsyncMock,
+            return_value=24940,
+        ):
+            result = await resolve_asns_from_ips(
+                {
+                    "mail1.example.de": ["1.2.3.4"],
+                    "mail2.example.de": ["5.6.7.8"],
+                }
+            )
+        assert result == {24940}
+
+    async def test_failure_skipped(self):
+        with patch(
+            "mail_sovereignty.dns.lookup_asn_cymru",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await resolve_asns_from_ips({"mail.example.de": ["1.2.3.4"]})
+        assert result == set()

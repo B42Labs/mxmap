@@ -2,6 +2,31 @@ from pathlib import Path
 
 from dynaconf import Dynaconf
 
+from mail_sovereignty.classify import DomesticConfig
+
+
+def build_domestic_config(settings: Dynaconf) -> DomesticConfig | None:
+    """Build DomesticConfig from country settings. Returns None if not configured."""
+    label = settings.get("map", {}).get("domestic_isp_label", "")
+    if not label:
+        return None
+
+    raw_asns = settings.get("domestic_isp_asns", {})
+    asns = {int(k): str(v) for k, v in raw_asns.items()}
+
+    map_cfg = settings.get("map", {})
+    domains = list(map_cfg.get("domestic_domains", []))
+    country_tlds = list(map_cfg.get("country_tlds", []))
+    target_country = settings.get("country_code", "").upper()
+
+    return DomesticConfig(
+        asns=asns,
+        domains=domains,
+        country_tlds=country_tlds,
+        target_country=target_country,
+        label=label,
+    )
+
 
 def load_country(code: str) -> Dynaconf:
     """Load country-specific configuration on top of global defaults."""
@@ -32,5 +57,9 @@ def load_country(code: str) -> Dynaconf:
             d["mx"] = list(d["mx"])
         manual_overrides[str(bfs)] = d
     settings.set("manual_overrides", manual_overrides)
+
+    # Build domestic ISP config
+    domestic = build_domestic_config(settings)
+    settings.set("domestic_config", domestic)
 
     return settings
