@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
@@ -22,11 +23,20 @@ def build(country: str, config) -> None:
         "map": map_cfg,
         "site": site_cfg,
         "country_code": country,
+        "domestic_isp_label": map_cfg.get("domestic_isp_label", "domestic-isp"),
     }
 
     for tpl_name in ["index.html", "datenschutz.html", "impressum.html"]:
         template = env.get_template(tpl_name)
         rendered = template.render(**context)
         (output_dir / tpl_name).write_text(rendered)
+
+    # Copy TopoJSON file if configured as a local path
+    topojson_url = map_cfg.get("topojson_url", "")
+    if topojson_url and not topojson_url.startswith(("http://", "https://")):
+        src = Path("config/geo") / topojson_url
+        if src.exists():
+            shutil.copy2(src, output_dir / topojson_url)
+            print(f"Copied {src} -> {output_dir / topojson_url}")
 
     print(f"Built site for '{country}' in {output_dir}/")

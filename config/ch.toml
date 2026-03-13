@@ -183,6 +183,7 @@ max_zoom = 14
 topojson_url = "https://cdn.jsdelivr.net/npm/swiss-maps@4.7.0/2026/ch-combined.json"
 locale = "de-CH"
 country_tlds = [".ch", ".swiss"]
+domestic_isp_label = "swiss-isp"
 domestic_domains = [
     "abxsec.com", "swiss-egov.cloud", "sui-inter.net", "ch-dns.net", "cyon.net",
     "seppmail.cloud", "swisscom.com", "privasphere.com", "tinext.com", "cloudrexx.com",

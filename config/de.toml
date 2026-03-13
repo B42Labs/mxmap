@@ -36,9 +36,10 @@ center_lon = 10.4
 zoom = 6
 min_zoom = 5
 max_zoom = 14
-topojson_url = ""
+topojson_url = "de-gemeinden.json"
 locale = "de-DE"
 country_tlds = [".de"]
+domestic_isp_label = "german-isp"
 domestic_domains = [
     "strato.de", "ionos.com", "hetzner.com", "hetzner.de",
     "df.eu", "manitu.de", "hostsharing.net", "jpberlin.de",
