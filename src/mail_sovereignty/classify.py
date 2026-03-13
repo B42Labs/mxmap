@@ -3,11 +3,9 @@ from mail_sovereignty.constants import (
     FOREIGN_SENDER_KEYWORDS,
     GATEWAY_KEYWORDS,
     GOOGLE_KEYWORDS,
-    INFOMANIAK_KEYWORDS,
     MICROSOFT_KEYWORDS,
     PROVIDER_KEYWORDS,
     SMTP_BANNER_KEYWORDS,
-    SWISS_ISP_ASNS,
 )
 
 
@@ -57,10 +55,11 @@ def classify(
     mx_asns: set[int] | None = None,
     resolved_spf: str | None = None,
     autodiscover: dict[str, str] | None = None,
-    domestic_isp_asns: dict[int, str] | None = None,
-    domestic_isp_label: str = "swiss-isp",
 ) -> str:
     """Classify email provider based on MX, CNAME targets, and SPF.
+
+    Detects hyperscalers (Microsoft, Google, AWS). Everything else with
+    valid MX records is classified as 'independent'.
 
     MX records are checked first (they show where mail is actually delivered).
     CNAME targets of MX hosts are checked next (to detect hidden hyperscaler usage).
@@ -74,8 +73,6 @@ def classify(
         return "microsoft"
     if any(k in mx_blob for k in GOOGLE_KEYWORDS):
         return "google"
-    if any(k in mx_blob for k in INFOMANIAK_KEYWORDS):
-        return "infomaniak"
     if any(k in mx_blob for k in AWS_KEYWORDS):
         return "aws"
 
@@ -85,8 +82,6 @@ def classify(
             return "microsoft"
         if any(k in cname_blob for k in GOOGLE_KEYWORDS):
             return "google"
-        if any(k in cname_blob for k in INFOMANIAK_KEYWORDS):
-            return "infomaniak"
         if any(k in cname_blob for k in AWS_KEYWORDS):
             return "aws"
 
@@ -104,13 +99,6 @@ def classify(
         # Gateway relays to independent, fall through
 
     if mx_records:
-        _isp_asns = domestic_isp_asns or SWISS_ISP_ASNS
-        if mx_asns and mx_asns & _isp_asns.keys():
-            # Check autodiscover for hyperscaler backend behind ISP relay
-            ad_provider = classify_from_autodiscover(autodiscover)
-            if ad_provider:
-                return ad_provider
-            return domestic_isp_label
         # Check autodiscover for hyperscaler backend behind independent MX
         ad_provider = classify_from_autodiscover(autodiscover)
         if ad_provider:

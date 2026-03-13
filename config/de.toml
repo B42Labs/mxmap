@@ -2,7 +2,6 @@
 
 country_code = "de"
 tld = ".de"
-domestic_isp_label = "german-isp"
 sparql_query_file = "config/sparql/de.sparql"
 domain_prefixes = ["gemeinde-", "stadt-", "markt-", "vg-"]
 ehlo_hostname = "mxmap.de"
@@ -27,20 +26,6 @@ subpages = [
 ]
 
 manual_override_ids = []
-
-[domestic_isp_asns]
-3320 = "Deutsche Telekom"
-6724 = "Strato"
-8560 = "IONOS (1&1)"
-8972 = "Host Europe (GoDaddy)"
-13335 = "Cloudflare"
-24940 = "Hetzner Online"
-29551 = "aixit"
-34011 = "Domainfactory"
-47846 = "Profihost"
-48314 = "IP-Projects (Michael Schinzel)"
-61157 = "Mittwald CM Service"
-197540 = "netcup"
 
 [manual_overrides]
 # To be populated as needed

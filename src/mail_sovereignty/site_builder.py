@@ -21,7 +21,6 @@ def build(country: str, config) -> None:
     context = {
         "map": map_cfg,
         "site": site_cfg,
-        "domestic_isp_label": config.domestic_isp_label,
         "country_code": country,
     }
 

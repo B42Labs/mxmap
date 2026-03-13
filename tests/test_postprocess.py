@@ -3,7 +3,6 @@ import json
 from unittest.mock import AsyncMock, patch
 
 from mail_sovereignty.postprocess import (
-    MANUAL_OVERRIDES,
     build_urls,
     decrypt_typo3,
     extract_email_domains,
@@ -97,23 +96,6 @@ class TestBuildUrls:
         urls = build_urls("example.ch")
         assert any("/contact" in u for u in urls)
         assert any("/kontakt" in u for u in urls)
-
-
-# ── MANUAL_OVERRIDES ─────────────────────────────────────────────────
-
-
-class TestManualOverrides:
-    def test_all_entries_have_required_keys(self):
-        for bfs, entry in MANUAL_OVERRIDES.items():
-            assert "domain" in entry, f"BFS {bfs} missing 'domain'"
-            assert "provider" in entry, f"BFS {bfs} missing 'provider'"
-
-    def test_valid_providers(self):
-        valid = {"independent", "infomaniak", "microsoft", "swiss-isp"}
-        for bfs, entry in MANUAL_OVERRIDES.items():
-            assert entry["provider"] in valid, (
-                f"BFS {bfs}: unexpected provider {entry['provider']}"
-            )
 
 
 # ── Async functions ──────────────────────────────────────────────────
@@ -541,18 +523,17 @@ class TestDnsRelookup:
         path = tmp_path / "data.json"
         path.write_text(json.dumps(data))
 
-        overrides = {
-            "5000": {"domain": "relookup.ch"},
-        }
+        # Create a mock country_config with manual overrides
+        class FakeConfig:
+            manual_overrides = {"5000": {"domain": "relookup.ch"}}
+            concurrency_postprocess = 10
+            concurrency_smtp = 5
+            user_agent = "test/1.0"
+            ehlo_hostname = "test.ch"
+            subpages = ["/kontakt"]
+            skip_domains_merged = {"example.com"}
 
         with (
-            patch.object(
-                __import__(
-                    "mail_sovereignty.postprocess", fromlist=["MANUAL_OVERRIDES"]
-                ),
-                "MANUAL_OVERRIDES",
-                overrides,
-            ),
             patch(
                 "mail_sovereignty.postprocess.lookup_mx",
                 new_callable=AsyncMock,
@@ -589,7 +570,7 @@ class TestDnsRelookup:
                 return_value={"banner": "", "ehlo": ""},
             ),
         ):
-            await run(path)
+            await run(path, country_config=FakeConfig())
 
         result = json.loads(path.read_text())
         assert result["municipalities"]["5000"]["domain"] == "relookup.ch"
@@ -615,25 +596,23 @@ class TestDnsRelookup:
         path = tmp_path / "data.json"
         path.write_text(json.dumps(data))
 
-        overrides = {
-            "6000": {"domain": "merged.ch", "provider": "merged"},
-        }
+        class FakeConfig:
+            manual_overrides = {"6000": {"domain": "merged.ch", "provider": "merged"}}
+            concurrency_postprocess = 10
+            concurrency_smtp = 5
+            user_agent = "test/1.0"
+            ehlo_hostname = "test.ch"
+            subpages = ["/kontakt"]
+            skip_domains_merged = {"example.com"}
 
         with (
-            patch.object(
-                __import__(
-                    "mail_sovereignty.postprocess", fromlist=["MANUAL_OVERRIDES"]
-                ),
-                "MANUAL_OVERRIDES",
-                overrides,
-            ),
             patch(
                 "mail_sovereignty.postprocess.fetch_smtp_banner",
                 new_callable=AsyncMock,
                 return_value={"banner": "", "ehlo": ""},
             ),
         ):
-            await run(path)
+            await run(path, country_config=FakeConfig())
 
         result = json.loads(path.read_text())
         assert result["municipalities"]["6000"]["mx"] == []
@@ -710,20 +689,20 @@ class TestDnsRetryEnrichment:
 
 
 class TestPostprocessRun:
-    async def test_applies_manual_overrides(self, tmp_path):
+    async def test_run_without_manual_overrides(self, tmp_path):
         data = {
             "generated": "2025-01-01",
             "total": 1,
-            "counts": {"unknown": 1},
+            "counts": {"microsoft": 1},
             "municipalities": {
-                "6404": {
-                    "bfs": "6404",
-                    "name": "Boudry",
-                    "canton": "Neuchatel",
-                    "domain": "",
-                    "mx": [],
-                    "spf": "",
-                    "provider": "unknown",
+                "351": {
+                    "bfs": "351",
+                    "name": "Bern",
+                    "canton": "Bern",
+                    "domain": "bern.ch",
+                    "mx": ["bern-ch.mail.protection.outlook.com"],
+                    "spf": "v=spf1 include:spf.protection.outlook.com -all",
+                    "provider": "microsoft",
                 },
             },
         }
@@ -733,4 +712,4 @@ class TestPostprocessRun:
         await run(path)
 
         result = json.loads(path.read_text())
-        assert result["municipalities"]["6404"]["provider"] == "swiss-isp"
+        assert result["municipalities"]["351"]["provider"] == "microsoft"

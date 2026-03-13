@@ -21,9 +21,6 @@ class TestClassify:
             classify(["aspmx.l.google.com", "alt1.aspmx.l.google.com"], "") == "google"
         )
 
-    def test_infomaniak_mx(self):
-        assert classify(["mxpool.infomaniak.com"], "") == "infomaniak"
-
     def test_aws_mx(self):
         assert classify(["inbound-smtp.us-east-1.amazonaws.com"], "") == "aws"
 
@@ -68,52 +65,7 @@ class TestClassify:
         )
         assert result == "microsoft"
 
-    def test_swiss_isp_asn(self):
-        result = classify(
-            ["mail1.rzobt.ch"],
-            "",
-            mx_asns={3303},
-        )
-        assert result == "swiss-isp"
-
-    def test_swiss_isp_does_not_override_hostname_match(self):
-        result = classify(
-            ["mail.protection.outlook.com"],
-            "",
-            mx_asns={3303},
-        )
-        assert result == "microsoft"
-
-    def test_swiss_isp_does_not_override_cname_match(self):
-        result = classify(
-            ["mail.example.ch"],
-            "",
-            mx_cnames={"mail.example.ch": "mail.protection.outlook.com"},
-            mx_asns={3303},
-        )
-        assert result == "microsoft"
-
-    def test_swiss_isp_with_autodiscover_microsoft(self):
-        """Swiss ISP relay with autodiscover pointing to outlook.com → microsoft."""
-        result = classify(
-            ["mail1.rzobt.ch"],
-            "",
-            mx_asns={3303},
-            autodiscover={"autodiscover_cname": "autodiscover.outlook.com"},
-        )
-        assert result == "microsoft"
-
-    def test_swiss_isp_without_autodiscover_stays_swiss_isp(self):
-        """Swiss ISP relay without autodiscover stays swiss-isp."""
-        result = classify(
-            ["mail1.rzobt.ch"],
-            "",
-            mx_asns={3303},
-            autodiscover=None,
-        )
-        assert result == "swiss-isp"
-
-    def test_non_swiss_isp_asn_stays_independent(self):
+    def test_non_hyperscaler_asn_stays_independent(self):
         result = classify(
             ["mail.example.ch"],
             "",
@@ -527,9 +479,6 @@ class TestClassifyFromSmtpBanner:
             classify_from_smtp_banner("220 custom.example.ch", "250 Google ESMTP ready")
             == "google"
         )
-
-    def test_infomaniak_banner(self):
-        assert classify_from_smtp_banner("220 mail.infomaniak.ch ESMTP") == "infomaniak"
 
     def test_aws_banner(self):
         assert (
