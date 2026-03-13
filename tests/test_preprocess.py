@@ -127,6 +127,116 @@ class TestFetchWikidata:
         result = await fetch_wikidata()
         assert len(result) == 1
 
+    @respx.mock
+    async def test_dedup_fills_missing_website(self):
+        respx.post("https://query.wikidata.org/sparql").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "results": {
+                        "bindings": [
+                            {
+                                "bfs": {"value": "100"},
+                                "itemLabel": {"value": "Town"},
+                                "website": {},
+                                "cantonLabel": {"value": "Canton"},
+                            },
+                            {
+                                "bfs": {"value": "100"},
+                                "itemLabel": {"value": "Town"},
+                                "website": {"value": "https://town.ch"},
+                                "cantonLabel": {"value": "Canton"},
+                            },
+                        ]
+                    }
+                },
+            )
+        )
+
+        result = await fetch_wikidata()
+        assert result["100"]["website"] == "https://town.ch"
+
+    @respx.mock
+    async def test_retry_on_429(self):
+        route = respx.post("https://query.wikidata.org/sparql")
+        route.side_effect = [
+            httpx.Response(429),
+            httpx.Response(
+                200,
+                json={
+                    "results": {
+                        "bindings": [
+                            {
+                                "bfs": {"value": "1"},
+                                "itemLabel": {"value": "X"},
+                                "website": {},
+                                "cantonLabel": {},
+                            },
+                        ]
+                    }
+                },
+            ),
+        ]
+
+        with patch("mail_sovereignty.preprocess.asyncio.sleep", new_callable=AsyncMock):
+            result = await fetch_wikidata(base_delay=0.01)
+
+        assert "1" in result
+
+    @respx.mock
+    async def test_retry_on_timeout(self):
+        route = respx.post("https://query.wikidata.org/sparql")
+        route.side_effect = [
+            httpx.TimeoutException("timeout"),
+            httpx.Response(
+                200,
+                json={
+                    "results": {
+                        "bindings": [
+                            {
+                                "bfs": {"value": "2"},
+                                "itemLabel": {"value": "Y"},
+                                "website": {},
+                                "cantonLabel": {},
+                            },
+                        ]
+                    }
+                },
+            ),
+        ]
+
+        with patch("mail_sovereignty.preprocess.asyncio.sleep", new_callable=AsyncMock):
+            result = await fetch_wikidata(base_delay=0.01)
+
+        assert "2" in result
+
+    @respx.mock
+    async def test_retry_on_request_error(self):
+        route = respx.post("https://query.wikidata.org/sparql")
+        route.side_effect = [
+            httpx.ConnectError("conn error"),
+            httpx.Response(
+                200,
+                json={
+                    "results": {
+                        "bindings": [
+                            {
+                                "bfs": {"value": "3"},
+                                "itemLabel": {"value": "Z"},
+                                "website": {},
+                                "cantonLabel": {},
+                            },
+                        ]
+                    }
+                },
+            ),
+        ]
+
+        with patch("mail_sovereignty.preprocess.asyncio.sleep", new_callable=AsyncMock):
+            result = await fetch_wikidata(base_delay=0.01)
+
+        assert "3" in result
+
 
 # ── scan_municipality() ──────────────────────────────────────────────
 
@@ -199,6 +309,47 @@ class TestScanMunicipality:
 
         assert result["provider"] == "independent"
         assert result["domain"] == "bern.ch"
+
+    async def test_skips_guess_matching_website_domain(self):
+        m = {
+            "bfs": "999",
+            "name": "Bern",
+            "canton": "Bern",
+            "website": "https://bern.ch",
+        }
+        sem = __import__("asyncio").Semaphore(10)
+
+        calls = []
+
+        async def fake_lookup_mx(domain):
+            calls.append(domain)
+            if domain == "gemeinde-bern.ch":
+                return ["mail.gemeinde-bern.ch"]
+            return []
+
+        with (
+            patch("mail_sovereignty.preprocess.lookup_mx", side_effect=fake_lookup_mx),
+            patch(
+                "mail_sovereignty.preprocess.lookup_spf",
+                new_callable=AsyncMock,
+                return_value="",
+            ),
+            patch(
+                "mail_sovereignty.preprocess.resolve_spf_includes",
+                new_callable=AsyncMock,
+                return_value="",
+            ),
+            patch(
+                "mail_sovereignty.preprocess.lookup_autodiscover",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+        ):
+            result = await scan_municipality(m, sem)
+
+        # bern.ch was tried first (from website), then guesses skip bern.ch
+        assert "bern.ch" not in calls[1:]  # bern.ch should not appear in guess attempts
+        assert result["domain"] == "gemeinde-bern.ch"
 
     async def test_no_mx_unknown(self):
         m = {"bfs": "999", "name": "Zzz", "canton": "Test", "website": ""}
@@ -389,3 +540,113 @@ class TestPreprocessRun:
         data = json.loads(output.read_text())
         assert data["total"] == 1
         assert "351" in data["municipalities"]
+
+    @respx.mock
+    async def test_run_with_filter(self, tmp_path):
+        respx.post("https://query.wikidata.org/sparql").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "results": {
+                        "bindings": [
+                            {
+                                "bfs": {"value": "351"},
+                                "itemLabel": {"value": "Bern"},
+                                "website": {"value": "https://www.bern.ch"},
+                                "cantonLabel": {"value": "Bern"},
+                            },
+                            {
+                                "bfs": {"value": "261"},
+                                "itemLabel": {"value": "Zürich"},
+                                "website": {"value": "https://www.zuerich.ch"},
+                                "cantonLabel": {"value": "Zürich"},
+                            },
+                        ]
+                    }
+                },
+            )
+        )
+
+        with (
+            patch(
+                "mail_sovereignty.preprocess.lookup_mx",
+                new_callable=AsyncMock,
+                return_value=["mx.bern.ch"],
+            ),
+            patch(
+                "mail_sovereignty.preprocess.lookup_spf",
+                new_callable=AsyncMock,
+                return_value="",
+            ),
+            patch(
+                "mail_sovereignty.preprocess.resolve_spf_includes",
+                new_callable=AsyncMock,
+                return_value="",
+            ),
+            patch(
+                "mail_sovereignty.preprocess.lookup_autodiscover",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+        ):
+            output = tmp_path / "data.json"
+            await run(output, municipality_filter="Bern")
+
+        data = json.loads(output.read_text())
+        assert data["total"] == 1
+        assert "351" in data["municipalities"]
+        assert "261" not in data["municipalities"]
+
+    @respx.mock
+    async def test_run_with_limit(self, tmp_path):
+        respx.post("https://query.wikidata.org/sparql").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "results": {
+                        "bindings": [
+                            {
+                                "bfs": {"value": "351"},
+                                "itemLabel": {"value": "Bern"},
+                                "website": {"value": "https://www.bern.ch"},
+                                "cantonLabel": {"value": "Bern"},
+                            },
+                            {
+                                "bfs": {"value": "261"},
+                                "itemLabel": {"value": "Zürich"},
+                                "website": {"value": "https://www.zuerich.ch"},
+                                "cantonLabel": {"value": "Zürich"},
+                            },
+                        ]
+                    }
+                },
+            )
+        )
+
+        with (
+            patch(
+                "mail_sovereignty.preprocess.lookup_mx",
+                new_callable=AsyncMock,
+                return_value=["mx.test.ch"],
+            ),
+            patch(
+                "mail_sovereignty.preprocess.lookup_spf",
+                new_callable=AsyncMock,
+                return_value="",
+            ),
+            patch(
+                "mail_sovereignty.preprocess.resolve_spf_includes",
+                new_callable=AsyncMock,
+                return_value="",
+            ),
+            patch(
+                "mail_sovereignty.preprocess.lookup_autodiscover",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+        ):
+            output = tmp_path / "data.json"
+            await run(output, limit=1)
+
+        data = json.loads(output.read_text())
+        assert data["total"] == 1

@@ -192,6 +192,72 @@ class TestProcessUnknown:
         assert result["provider"] == "unknown"
 
 
+class TestProcessUnknownEnrichment:
+    async def test_stores_all_enrichment_fields(self):
+        m = {
+            "bfs": "999",
+            "name": "Test",
+            "domain": "test.ch",
+            "provider": "unknown",
+        }
+        sem = asyncio.Semaphore(10)
+
+        class FakeResponse:
+            status_code = 200
+            text = "Contact us at info@email.test.ch"
+
+        client = AsyncMock()
+        client.get = AsyncMock(return_value=FakeResponse())
+
+        raw_spf = "v=spf1 include:custom.ch -all"
+        resolved_spf = (
+            "v=spf1 include:custom.ch include:spf.protection.outlook.com -all"
+        )
+
+        with (
+            patch(
+                "mail_sovereignty.postprocess.lookup_mx",
+                new_callable=AsyncMock,
+                return_value=["mx.seppmail.cloud"],
+            ),
+            patch(
+                "mail_sovereignty.postprocess.lookup_spf",
+                new_callable=AsyncMock,
+                return_value=raw_spf,
+            ),
+            patch(
+                "mail_sovereignty.postprocess.resolve_spf_includes",
+                new_callable=AsyncMock,
+                return_value=resolved_spf,
+            ),
+            patch(
+                "mail_sovereignty.postprocess.resolve_mx_cnames",
+                new_callable=AsyncMock,
+                return_value={"mx.seppmail.cloud": "target.outlook.com"},
+            ),
+            patch(
+                "mail_sovereignty.postprocess.resolve_mx_asns",
+                new_callable=AsyncMock,
+                return_value={8075},
+            ),
+            patch(
+                "mail_sovereignty.postprocess.lookup_autodiscover",
+                new_callable=AsyncMock,
+                return_value={"autodiscover_cname": "autodiscover.outlook.com"},
+            ),
+        ):
+            result = await process_unknown(client, sem, m)
+
+        assert result["provider"] == "microsoft"
+        assert result["gateway"] == "seppmail"
+        assert result["spf_resolved"] == resolved_spf
+        assert result["mx_cnames"] == {"mx.seppmail.cloud": "target.outlook.com"}
+        assert result["mx_asns"] == [8075]
+        assert result["autodiscover"] == {
+            "autodiscover_cname": "autodiscover.outlook.com"
+        }
+
+
 class TestScrapeEmailDomainsNoEmails:
     async def test_non_200_skipped(self):
         class FakeResponse:
@@ -452,6 +518,195 @@ class TestSmtpBannerStep:
         result = json.loads(path.read_text())
         assert result["municipalities"]["3000"]["provider"] == "independent"
         assert "smtp_banner" not in result["municipalities"]["3000"]
+
+
+class TestDnsRelookup:
+    async def test_domain_only_override_triggers_relookup(self, tmp_path):
+        data = {
+            "generated": "2025-01-01",
+            "total": 1,
+            "counts": {"unknown": 1},
+            "municipalities": {
+                "5000": {
+                    "bfs": "5000",
+                    "name": "RelookupTown",
+                    "canton": "Test",
+                    "domain": "old.ch",
+                    "mx": [],
+                    "spf": "",
+                    "provider": "unknown",
+                },
+            },
+        }
+        path = tmp_path / "data.json"
+        path.write_text(json.dumps(data))
+
+        overrides = {
+            "5000": {"domain": "relookup.ch"},
+        }
+
+        with (
+            patch.object(
+                __import__(
+                    "mail_sovereignty.postprocess", fromlist=["MANUAL_OVERRIDES"]
+                ),
+                "MANUAL_OVERRIDES",
+                overrides,
+            ),
+            patch(
+                "mail_sovereignty.postprocess.lookup_mx",
+                new_callable=AsyncMock,
+                return_value=["mail.protection.outlook.com"],
+            ),
+            patch(
+                "mail_sovereignty.postprocess.lookup_spf",
+                new_callable=AsyncMock,
+                return_value="v=spf1 include:spf.protection.outlook.com -all",
+            ),
+            patch(
+                "mail_sovereignty.postprocess.resolve_spf_includes",
+                new_callable=AsyncMock,
+                return_value="",
+            ),
+            patch(
+                "mail_sovereignty.postprocess.resolve_mx_cnames",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "mail_sovereignty.postprocess.resolve_mx_asns",
+                new_callable=AsyncMock,
+                return_value=set(),
+            ),
+            patch(
+                "mail_sovereignty.postprocess.lookup_autodiscover",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "mail_sovereignty.postprocess.fetch_smtp_banner",
+                new_callable=AsyncMock,
+                return_value={"banner": "", "ehlo": ""},
+            ),
+        ):
+            await run(path)
+
+        result = json.loads(path.read_text())
+        assert result["municipalities"]["5000"]["domain"] == "relookup.ch"
+        assert result["municipalities"]["5000"]["provider"] == "microsoft"
+
+    async def test_merged_provider_clears_mx_spf(self, tmp_path):
+        data = {
+            "generated": "2025-01-01",
+            "total": 1,
+            "counts": {"unknown": 1},
+            "municipalities": {
+                "6000": {
+                    "bfs": "6000",
+                    "name": "MergedTown",
+                    "canton": "Test",
+                    "domain": "merged.ch",
+                    "mx": ["old.mx.ch"],
+                    "spf": "v=spf1 -all",
+                    "provider": "unknown",
+                },
+            },
+        }
+        path = tmp_path / "data.json"
+        path.write_text(json.dumps(data))
+
+        overrides = {
+            "6000": {"domain": "merged.ch", "provider": "merged"},
+        }
+
+        with (
+            patch.object(
+                __import__(
+                    "mail_sovereignty.postprocess", fromlist=["MANUAL_OVERRIDES"]
+                ),
+                "MANUAL_OVERRIDES",
+                overrides,
+            ),
+            patch(
+                "mail_sovereignty.postprocess.fetch_smtp_banner",
+                new_callable=AsyncMock,
+                return_value={"banner": "", "ehlo": ""},
+            ),
+        ):
+            await run(path)
+
+        result = json.loads(path.read_text())
+        assert result["municipalities"]["6000"]["mx"] == []
+        assert result["municipalities"]["6000"]["spf"] == ""
+
+
+class TestDnsRetryEnrichment:
+    async def test_dns_retry_stores_gateway_cnames_autodiscover(self, tmp_path):
+        data = {
+            "generated": "2025-01-01",
+            "total": 1,
+            "counts": {"unknown": 1},
+            "municipalities": {
+                "7000": {
+                    "bfs": "7000",
+                    "name": "EnrichTown",
+                    "canton": "Test",
+                    "domain": "enrich.ch",
+                    "mx": [],
+                    "spf": "",
+                    "provider": "unknown",
+                },
+            },
+        }
+        path = tmp_path / "data.json"
+        path.write_text(json.dumps(data))
+
+        with (
+            patch(
+                "mail_sovereignty.postprocess.lookup_mx",
+                new_callable=AsyncMock,
+                return_value=["mx.seppmail.cloud"],
+            ),
+            patch(
+                "mail_sovereignty.postprocess.lookup_spf",
+                new_callable=AsyncMock,
+                return_value="v=spf1 include:spf.protection.outlook.com -all",
+            ),
+            patch(
+                "mail_sovereignty.postprocess.resolve_spf_includes",
+                new_callable=AsyncMock,
+                return_value="",
+            ),
+            patch(
+                "mail_sovereignty.postprocess.resolve_mx_cnames",
+                new_callable=AsyncMock,
+                return_value={"mx.seppmail.cloud": "target.outlook.com"},
+            ),
+            patch(
+                "mail_sovereignty.postprocess.resolve_mx_asns",
+                new_callable=AsyncMock,
+                return_value={8075},
+            ),
+            patch(
+                "mail_sovereignty.postprocess.lookup_autodiscover",
+                new_callable=AsyncMock,
+                return_value={"autodiscover_cname": "autodiscover.outlook.com"},
+            ),
+            patch(
+                "mail_sovereignty.postprocess.fetch_smtp_banner",
+                new_callable=AsyncMock,
+                return_value={"banner": "", "ehlo": ""},
+            ),
+        ):
+            await run(path)
+
+        result = json.loads(path.read_text())
+        m = result["municipalities"]["7000"]
+        assert m["provider"] == "microsoft"
+        assert m["gateway"] == "seppmail"
+        assert m["mx_cnames"] == {"mx.seppmail.cloud": "target.outlook.com"}
+        assert m["mx_asns"] == [8075]
+        assert m["autodiscover"] == {"autodiscover_cname": "autodiscover.outlook.com"}
 
 
 class TestPostprocessRun:
