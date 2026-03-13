@@ -1,0 +1,214 @@
+# Switzerland configuration
+
+country_code = "ch"
+tld = ".ch"
+domestic_isp_label = "swiss-isp"
+sparql_query_file = "config/sparql/ch.sparql"
+domain_prefixes = ["gemeinde-", "commune-de-"]
+ehlo_hostname = "mxmap.ch"
+user_agent = "mxmap.ch/1.0 (https://github.com/davidhuser/mxmap)"
+
+skip_domains_extra = ["example.ch"]
+
+subpages = [
+    "/kontakt",
+    "/contact",
+    "/impressum",
+    "/kontakt/",
+    "/contact/",
+    "/impressum/",
+    "/de/kontakt",
+    "/fr/contact",
+    "/it/contatto",
+    "/verwaltung",
+    "/administration",
+    "/autorites",
+    "/gemeinde",
+    "/commune",
+    "/comune",
+]
+
+manual_override_ids = [
+    "6404", "6408", "6413", "6416", "6417", "6423",
+    "6432", "6433", "6434", "6435", "6437",
+    "6451", "6455", "6456", "6458", "6487", "6504",
+    "422",
+]
+
+[domestic_isp_asns]
+559 = "SWITCH"
+3303 = "Swisscom"
+6730 = "Sunrise UPC"
+6830 = "Liberty Global (UPC/Sunrise)"
+12399 = "Sunrise"
+13030 = "Init7"
+13213 = "Cyberlink AG"
+15576 = "NTS"
+15600 = "Quickline"
+15796 = "Netzone AG"
+24889 = "Datapark AG"
+29691 = "Hostpoint / Green.ch"
+51786 = "Infomaniak Network SA"
+
+# Neuchatel canton: all use @ne.ch (cantonal mail gateway operated by SIEN,
+# MX points to cantonal servers on SWITCH AS559)
+[manual_overrides."6404"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+[manual_overrides."6408"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+[manual_overrides."6413"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+[manual_overrides."6416"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+[manual_overrides."6417"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+[manual_overrides."6432"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+[manual_overrides."6433"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+[manual_overrides."6434"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+[manual_overrides."6435"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+[manual_overrides."6437"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+[manual_overrides."6451"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+[manual_overrides."6455"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+[manual_overrides."6456"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+[manual_overrides."6504"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+[manual_overrides."6423"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+[manual_overrides."6458"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+[manual_overrides."6487"]
+domain = "ne.ch"
+provider = "swiss-isp"
+gateway = "cantonal-ne"
+mx = ["nemx9a.ne.ch", "ne2mx9a.ne.ch"]
+spf = "v=spf1 include:spf1.ne.ch include:spf.protection.outlook.com ~all"
+
+# Other manual resolutions
+[manual_overrides."261"]
+domain = "zuerich.ch"
+provider = "independent"
+
+[manual_overrides."422"]
+domain = "ruetibeilyssach.ch"
+provider = "infomaniak"
+
+[manual_overrides."2056"]
+name = "Fétigny-Ménières"
+canton = "Kanton Freiburg"
+domain = "fetigny-menieres.ch"
+provider = "microsoft"
+
+[manual_overrides."6172"]
+domain = "gemeinde-bister.ch"
+provider = "microsoft"
+
+[map]
+center_lat = 46.8
+center_lon = 8.2
+zoom = 8
+min_zoom = 7
+max_zoom = 14
+topojson_url = "https://cdn.jsdelivr.net/npm/swiss-maps@4.7.0/2026/ch-combined.json"
+locale = "de-CH"
+country_tlds = [".ch", ".swiss"]
+domestic_domains = [
+    "abxsec.com", "swiss-egov.cloud", "sui-inter.net", "ch-dns.net", "cyon.net",
+    "seppmail.cloud", "swisscom.com", "privasphere.com", "tinext.com", "cloudrexx.com",
+    "mailomat.cloud", "comp-sys.net", "engadin.cloud", "ti-informatique.com",
+    "assolo.net", "moresi.com",
+]
+
+[site]
+domain = "mxmap.ch"
+title = "MXmap — Email Providers of Swiss Municipalities"
+tagline = "Email Providers of Swiss Municipalities"
+description = "Interactive map showing the email providers of all ~2,100 Swiss municipalities, based on DNS analysis of MX and SPF records."
+og_locale = "en_CH"
