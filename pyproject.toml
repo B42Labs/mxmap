@@ -11,12 +11,15 @@ requires-python = ">=3.13"
 dependencies = [
     "dnspython>=2.8.0",
     "httpx>=0.28.1",
+    "dynaconf>=3.2",
+    "jinja2>=3.1",
 ]
 
 [project.scripts]
 preprocess = "mail_sovereignty.cli:preprocess"
 postprocess = "mail_sovereignty.cli:postprocess"
 validate = "mail_sovereignty.cli:validate"
+build-site = "mail_sovereignty.cli:build_site"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mail_sovereignty"]
@@ -36,6 +39,10 @@ asyncio_mode = "auto"
 
 [tool.coverage.run]
 source = ["mail_sovereignty"]
+omit = [
+    "src/mail_sovereignty/config.py",
+    "src/mail_sovereignty/site_builder.py",
+]
 
 [tool.coverage.report]
 show_missing = true
