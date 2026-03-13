@@ -1,0 +1,44 @@
+# Global defaults (country-independent)
+
+sparql_url = "https://query.wikidata.org/sparql"
+concurrency = 20
+concurrency_postprocess = 10
+concurrency_smtp = 5
+
+[provider_keywords]
+microsoft = ["mail.protection.outlook.com", "outlook.com", "microsoft", "office365", "onmicrosoft", "spf.protection.outlook.com", "sharepointonline"]
+google = ["google", "googlemail", "gmail", "_spf.google.com", "aspmx.l.google.com"]
+aws = ["amazonaws", "amazonses", "awsdns"]
+infomaniak = ["infomaniak", "ikmail.com", "mxpool.infomaniak"]
+
+[gateway_keywords]
+seppmail = ["seppmail.cloud", "seppmail.com"]
+cleanmail = ["cleanmail.ch", "cleanmail.safecenter.ch"]
+barracuda = ["barracudanetworks.com", "barracuda.com"]
+trendmicro = ["tmes.trendmicro.eu", "tmes.trendmicro.com"]
+hornetsecurity = ["hornetsecurity.com", "hornetsecurity.ch"]
+abxsec = ["abxsec.com"]
+proofpoint = ["ppe-hosted.com"]
+sophos = ["hydra.sophos.com"]
+spamvor = ["spamvor.com"]
+
+[smtp_banner_keywords]
+microsoft = ["microsoft esmtp mail service", "outlook.com", "protection.outlook.com"]
+google = ["mx.google.com", "google esmtp"]
+infomaniak = ["infomaniak"]
+aws = ["amazonaws", "amazonses"]
+
+[foreign_sender_keywords]
+mailchimp = ["mandrillapp.com", "mandrill", "mcsv.net"]
+sendgrid = ["sendgrid"]
+mailjet = ["mailjet"]
+mailgun = ["mailgun"]
+brevo = ["sendinblue", "brevo"]
+mailchannels = ["mailchannels"]
+smtp2go = ["smtp2go"]
+nl2go = ["nl2go"]
+hubspot = ["hubspotemail"]
+knowbe4 = ["knowbe4"]
+hornetsecurity = ["hornetsecurity", "hornetdmarc"]
+
+skip_domains = ["example.com", "sentry.io", "w3.org", "gstatic.com", "googleapis.com", "schema.org"]
