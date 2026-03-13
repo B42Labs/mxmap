@@ -1,5 +1,5 @@
 SELECT ?item ?itemLabel ?bfs ?website ?cantonLabel WHERE {
-  ?item wdt:P31 wd:Q262166 .         # instance of: municipality of Germany
+  ?item wdt:P31/wdt:P279* wd:Q262166 . # instance of: municipality of Germany (incl. subclasses)
   ?item wdt:P439 ?bfs .              # German municipality key (AGS)
   FILTER NOT EXISTS {                  # exclude dissolved municipalities
     ?item wdt:P576 ?dissolved .
@@ -7,7 +7,8 @@ SELECT ?item ?itemLabel ?bfs ?website ?cantonLabel WHERE {
   }
   FILTER NOT EXISTS {                  # exclude municipalities with ended P31 statement
     ?item p:P31 ?stmt .
-    ?stmt ps:P31 wd:Q262166 .
+    ?stmt ps:P31 ?type .
+    ?type wdt:P279* wd:Q262166 .
     ?stmt pq:P582 ?endTime .
     FILTER(?endTime <= NOW())
   }

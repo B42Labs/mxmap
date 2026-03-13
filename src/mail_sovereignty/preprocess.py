@@ -78,13 +78,17 @@ def _load_cache(cache_path: Path | None) -> dict[str, dict[str, str]] | None:
     if cache_path and cache_path.exists():
         with open(cache_path, encoding="utf-8") as f:
             cached = json.load(f)
-        print(f"  Loaded {len(cached['municipalities'])} municipalities from cache ({cache_path})")
+        print(
+            f"  Loaded {len(cached['municipalities'])} municipalities from cache ({cache_path})"
+        )
         print(f"  Cache date: {cached['fetched']}")
         return cached["municipalities"]
     return None
 
 
-def _save_cache(cache_path: Path | None, municipalities: dict[str, dict[str, str]]) -> None:
+def _save_cache(
+    cache_path: Path | None, municipalities: dict[str, dict[str, str]]
+) -> None:
     """Save municipalities to a cache file."""
     if not cache_path:
         return
