@@ -1,6 +1,89 @@
 import asyncio
+from unittest.mock import patch
 
 from mail_sovereignty.smtp import fetch_smtp_banner
+
+
+class TestFetchSmtpBannerDirect:
+    """Tests that call the actual fetch_smtp_banner function."""
+
+    async def test_successful_multiline_ehlo(self):
+        async def handler(reader, writer):
+            writer.write(b"220 mail.test.ch ESMTP Postfix\r\n")
+            await writer.drain()
+            await reader.readline()
+            writer.write(b"250-mail.test.ch Hello\r\n")
+            writer.write(b"250 SIZE 10240000\r\n")
+            await writer.drain()
+            await reader.readline()
+            writer.write(b"221 Bye\r\n")
+            await writer.drain()
+            writer.close()
+
+        server = await asyncio.start_server(handler, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        _real = asyncio.open_connection
+
+        async def _redirect(*_a, **_kw):
+            return await _real("127.0.0.1", port)
+
+        async with server:
+            with patch("asyncio.open_connection", new=_redirect):
+                result = await fetch_smtp_banner("any.host", timeout=5.0)
+
+        assert "Postfix" in result["banner"]
+        assert "250" in result["ehlo"]
+        assert "SIZE" in result["ehlo"]
+
+    async def test_single_line_ehlo(self):
+        async def handler(reader, writer):
+            writer.write(b"220 mail.test.ch ESMTP\r\n")
+            await writer.drain()
+            await reader.readline()
+            writer.write(b"250 mail.test.ch\r\n")
+            await writer.drain()
+            await reader.readline()
+            writer.write(b"221 Bye\r\n")
+            await writer.drain()
+            writer.close()
+
+        server = await asyncio.start_server(handler, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        _real = asyncio.open_connection
+
+        async def _redirect(*_a, **_kw):
+            return await _real("127.0.0.1", port)
+
+        async with server:
+            with patch("asyncio.open_connection", new=_redirect):
+                result = await fetch_smtp_banner("any.host", timeout=5.0)
+
+        assert result["banner"] != ""
+        assert result["ehlo"] != ""
+
+    async def test_quit_response_timeout_handled(self):
+        async def handler(reader, writer):
+            writer.write(b"220 mail.test.ch ESMTP\r\n")
+            await writer.drain()
+            await reader.readline()
+            writer.write(b"250 mail.test.ch\r\n")
+            await writer.drain()
+            await reader.readline()
+            # Don't send QUIT response
+            await asyncio.sleep(10)
+
+        server = await asyncio.start_server(handler, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        _real = asyncio.open_connection
+
+        async def _redirect(*_a, **_kw):
+            return await _real("127.0.0.1", port)
+
+        async with server:
+            with patch("asyncio.open_connection", new=_redirect):
+                result = await fetch_smtp_banner("any.host", timeout=2.0)
+
+        assert result["banner"] != ""
 
 
 class TestFetchSmtpBanner:
