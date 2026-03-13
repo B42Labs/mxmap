@@ -4,7 +4,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-async def fetch_smtp_banner(mx_host: str, timeout: float = 10.0) -> dict[str, str]:
+async def fetch_smtp_banner(
+    mx_host: str, timeout: float = 10.0, ehlo_hostname: str = "mxmap.ch"
+) -> dict[str, str]:
     """Connect to mx_host:25, read banner + EHLO response, QUIT.
 
     Returns {"banner": "...", "ehlo": "..."} or empty strings on failure.
@@ -23,7 +25,7 @@ async def fetch_smtp_banner(mx_host: str, timeout: float = 10.0) -> dict[str, st
         banner = banner_line.decode("utf-8", errors="replace").strip()
 
         # Send EHLO
-        writer.write(b"EHLO mxmap.ch\r\n")
+        writer.write(f"EHLO {ehlo_hostname}\r\n".encode())
         await writer.drain()
 
         # Read multi-line EHLO response (250-... continues, 250 ... ends)

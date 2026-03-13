@@ -57,19 +57,20 @@ def decrypt_typo3(encoded: str, offset: int = 2) -> str:
     return "".join(result)
 
 
-def extract_email_domains(html: str) -> set[str]:
+def extract_email_domains(html: str, skip_domains: set[str] | None = None) -> set[str]:
     """Extract email domains from HTML, including TYPO3-obfuscated emails."""
+    _skip = skip_domains if skip_domains is not None else SKIP_DOMAINS
     domains = set()
 
     for email in EMAIL_RE.findall(html):
         domain = email.split("@")[1].lower()
-        if domain not in SKIP_DOMAINS:
+        if domain not in _skip:
             domains.add(domain)
 
     for email in __import__("re").findall(r'mailto:([^">\s?]+)', html):
         if "@" in email:
             domain = email.split("@")[1].lower()
-            if domain not in SKIP_DOMAINS:
+            if domain not in _skip:
                 domains.add(domain)
 
     for encoded in TYPO3_RE.findall(html):
@@ -77,14 +78,15 @@ def extract_email_domains(html: str) -> set[str]:
         decoded = decoded.replace("mailto:", "")
         if "@" in decoded:
             domain = decoded.split("@")[1].lower()
-            if domain not in SKIP_DOMAINS:
+            if domain not in _skip:
                 domains.add(domain)
 
     return domains
 
 
-def build_urls(domain: str) -> list[str]:
+def build_urls(domain: str, subpages: list[str] | None = None) -> list[str]:
     """Build candidate URLs to scrape, trying www. prefix first."""
+    _subpages = subpages if subpages is not None else SUBPAGES
     domain = domain.strip()
     if domain.startswith(("http://", "https://")):
         parsed = urlparse(domain)
@@ -98,25 +100,30 @@ def build_urls(domain: str) -> list[str]:
     urls = []
     for base in bases:
         urls.append(base + "/")
-        for path in SUBPAGES:
+        for path in _subpages:
             urls.append(base + path)
     return urls
 
 
-async def scrape_email_domains(client: httpx.AsyncClient, domain: str) -> set[str]:
+async def scrape_email_domains(
+    client: httpx.AsyncClient,
+    domain: str,
+    subpages: list[str] | None = None,
+    skip_domains: set[str] | None = None,
+) -> set[str]:
     """Scrape a municipality website for email domains."""
     if not domain:
         return set()
 
     all_domains = set()
-    urls = build_urls(domain)
+    urls = build_urls(domain, subpages=subpages)
 
     for url in urls:
         try:
             r = await client.get(url, follow_redirects=True, timeout=15)
             if r.status_code != 200:
                 continue
-            domains = extract_email_domains(r.text)
+            domains = extract_email_domains(r.text, skip_domains=skip_domains)
             all_domains |= domains
             if all_domains:
                 return all_domains
@@ -127,9 +134,23 @@ async def scrape_email_domains(client: httpx.AsyncClient, domain: str) -> set[st
 
 
 async def process_unknown(
-    client: httpx.AsyncClient, semaphore: asyncio.Semaphore, m: dict[str, Any]
+    client: httpx.AsyncClient,
+    semaphore: asyncio.Semaphore,
+    m: dict[str, Any],
+    country_config=None,
 ) -> dict[str, Any]:
     """Try to resolve an unknown municipality by scraping its website."""
+    _subpages = (
+        list(country_config.subpages) if country_config else None
+    )  # pragma: no cover
+    _skip_domains = (
+        country_config.skip_domains_merged if country_config else None
+    )  # pragma: no cover
+    _classify_kwargs: dict = {}
+    if country_config:  # pragma: no cover
+        _classify_kwargs["domestic_isp_asns"] = country_config.domestic_isp_asns
+        _classify_kwargs["domestic_isp_label"] = country_config.domestic_isp_label
+
     async with semaphore:
         bfs = m["bfs"]
         name = m["name"]
@@ -139,7 +160,9 @@ async def process_unknown(
             print(f"  SKIP     {bfs:>5} {name:<30} (no domain)")
             return m
 
-        email_domains = await scrape_email_domains(client, domain)
+        email_domains = await scrape_email_domains(
+            client, domain, subpages=_subpages, skip_domains=_skip_domains
+        )
 
         for email_domain in sorted(email_domains):
             mx = await lookup_mx(email_domain)
@@ -156,6 +179,7 @@ async def process_unknown(
                     mx_asns=mx_asns or None,
                     resolved_spf=spf_resolved or None,
                     autodiscover=autodiscover or None,
+                    **_classify_kwargs,
                 )
                 gateway = detect_gateway(mx)
                 print(
@@ -329,16 +353,41 @@ MANUAL_OVERRIDES = {
 }
 
 
-async def run(data_path: Path) -> None:
+async def run(data_path: Path, country_config=None) -> None:
     with open(data_path, encoding="utf-8") as f:
         data = json.load(f)
 
     muni = data["municipalities"]
 
+    # Resolve config values
+    manual_overrides = (  # pragma: no cover
+        country_config.manual_overrides if country_config else MANUAL_OVERRIDES
+    )
+    _concurrency_pp = (  # pragma: no cover
+        country_config.concurrency_postprocess
+        if country_config
+        else CONCURRENCY_POSTPROCESS
+    )
+    _concurrency_smtp = (  # pragma: no cover
+        country_config.concurrency_smtp if country_config else CONCURRENCY_SMTP
+    )
+    _user_agent = (  # pragma: no cover
+        country_config.user_agent
+        if country_config
+        else "mxmap.ch/1.0 (https://github.com/davidhuser/mxmap)"
+    )
+    _ehlo_hostname = (
+        country_config.ehlo_hostname if country_config else "mxmap.ch"
+    )  # pragma: no cover
+    _classify_kwargs: dict = {}
+    if country_config:  # pragma: no cover
+        _classify_kwargs["domestic_isp_asns"] = country_config.domestic_isp_asns
+        _classify_kwargs["domestic_isp_label"] = country_config.domestic_isp_label
+
     # Step 1: Apply manual overrides
     print("Applying manual overrides...")
     dns_relookup = []  # (bfs, domain) pairs needing MX/SPF re-lookup
-    for bfs, override in MANUAL_OVERRIDES.items():
+    for bfs, override in manual_overrides.items():
         if bfs not in muni and "name" in override:
             muni[bfs] = {
                 "bfs": bfs,
@@ -395,6 +444,7 @@ async def run(data_path: Path) -> None:
                 mx_asns=mx_asns or None,
                 resolved_spf=spf_resolved or None,
                 autodiscover=autodiscover or None,
+                **_classify_kwargs,
             )
             gateway = detect_gateway(mx) if mx else None
             return (
@@ -457,6 +507,7 @@ async def run(data_path: Path) -> None:
                     mx_asns=mx_asns or None,
                     resolved_spf=spf_resolved or None,
                     autodiscover=autodiscover or None,
+                    **_classify_kwargs,
                 )
                 gateway = detect_gateway(mx)
                 m["mx"] = mx
@@ -491,11 +542,11 @@ async def run(data_path: Path) -> None:
             f"\nSMTP banner check: {len(smtp_candidates)} entries, "
             f"{len(mx_host_to_bfs)} unique MX hosts..."
         )
-        smtp_semaphore = asyncio.Semaphore(CONCURRENCY_SMTP)
+        smtp_semaphore = asyncio.Semaphore(_concurrency_smtp)
 
         async def _fetch_banner(mx_host: str) -> tuple[str, dict[str, str]]:
             async with smtp_semaphore:
-                res = await fetch_smtp_banner(mx_host)
+                res = await fetch_smtp_banner(mx_host, ehlo_hostname=_ehlo_hostname)
                 return mx_host, res
 
         banner_results = await asyncio.gather(
@@ -527,14 +578,15 @@ async def run(data_path: Path) -> None:
     print(f"\n{len(unknowns)} unknown municipalities to investigate\n")
 
     if unknowns:
-        semaphore = asyncio.Semaphore(CONCURRENCY_POSTPROCESS)
+        semaphore = asyncio.Semaphore(_concurrency_pp)
         async with httpx.AsyncClient(
-            headers={
-                "User-Agent": "mxmap.ch/1.0 (https://github.com/davidhuser/mxmap)"
-            },
+            headers={"User-Agent": _user_agent},
             follow_redirects=True,
         ) as client:
-            tasks = [process_unknown(client, semaphore, m) for m in unknowns]
+            tasks = [
+                process_unknown(client, semaphore, m, country_config=country_config)
+                for m in unknowns
+            ]
             results = await asyncio.gather(*tasks)
 
         resolved = 0

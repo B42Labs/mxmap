@@ -31,8 +31,11 @@ def url_to_domain(url: str | None) -> str | None:
     return host if host else None
 
 
-def guess_domains(name: str) -> list[str]:
+def guess_domains(
+    name: str, tld: str = ".ch", prefixes: list[str] | None = None
+) -> list[str]:
     """Generate a small set of plausible domain guesses for a municipality."""
+    _prefixes = prefixes if prefixes is not None else ["gemeinde-", "commune-de-"]
     raw = name.lower().strip()
     raw = re.sub(r"\s*\(.*?\)\s*", "", raw)
 
@@ -64,23 +67,31 @@ def guess_domains(name: str) -> list[str]:
     slugs = {slugify(de), slugify(fr), slugify(raw)} - {""}
     candidates = set()
     for slug in slugs:
-        candidates.add(f"{slug}.ch")
-        candidates.add(f"gemeinde-{slug}.ch")
-        candidates.add(f"commune-de-{slug}.ch")
+        candidates.add(f"{slug}{tld}")
+        for prefix in _prefixes:
+            candidates.add(f"{prefix}{slug}{tld}")
     return sorted(candidates)
 
 
-async def fetch_wikidata() -> dict[str, dict[str, str]]:
-    """Query Wikidata for all Swiss municipalities."""
-    print("Querying Wikidata for Swiss municipalities...")
+async def fetch_wikidata(country_config=None) -> dict[str, dict[str, str]]:
+    """Query Wikidata for municipalities."""
+    if country_config:
+        sparql_query = country_config.sparql_query
+        sparql_url = country_config.sparql_url
+        label = country_config.country_code.upper()
+    else:
+        sparql_query = SPARQL_QUERY
+        sparql_url = SPARQL_URL
+        label = "Swiss"
+    print(f"Querying Wikidata for {label} municipalities...")
     headers = {
         "Accept": "application/sparql-results+json",
         "User-Agent": "MXmap/1.0 (https://github.com/davidhuser/mxmap)",
     }
     async with httpx.AsyncClient(timeout=120) as client:
         r = await client.post(
-            SPARQL_URL,
-            data={"query": SPARQL_QUERY},
+            sparql_url,
+            data={"query": sparql_query},
             headers=headers,
         )
         r.raise_for_status()
@@ -111,7 +122,7 @@ async def fetch_wikidata() -> dict[str, dict[str, str]]:
 
 
 async def scan_municipality(
-    m: dict[str, str], semaphore: asyncio.Semaphore
+    m: dict[str, str], semaphore: asyncio.Semaphore, country_config=None
 ) -> dict[str, Any]:
     """Scan a single municipality for email provider info."""
     async with semaphore:
@@ -124,7 +135,9 @@ async def scan_municipality(
                 spf = await lookup_spf(domain)
 
         if not mx:
-            for guess in guess_domains(m["name"]):
+            tld = country_config.tld if country_config else ".ch"
+            prefixes = list(country_config.domain_prefixes) if country_config else None
+            for guess in guess_domains(m["name"], tld=tld, prefixes=prefixes):
                 if guess == domain:
                     continue
                 mx = await lookup_mx(guess)
@@ -137,6 +150,12 @@ async def scan_municipality(
         mx_cnames = await resolve_mx_cnames(mx) if mx else {}
         mx_asns = await resolve_mx_asns(mx) if mx else set()
         autodiscover = await lookup_autodiscover(domain) if domain else {}
+
+        classify_kwargs: dict = {}
+        if country_config:
+            classify_kwargs["domestic_isp_asns"] = country_config.domestic_isp_asns
+            classify_kwargs["domestic_isp_label"] = country_config.domestic_isp_label
+
         provider = classify(
             mx,
             spf,
@@ -144,6 +163,7 @@ async def scan_municipality(
             mx_asns=mx_asns or None,
             resolved_spf=spf_resolved or None,
             autodiscover=autodiscover or None,
+            **classify_kwargs,
         )
         gateway = detect_gateway(mx) if mx else None
 
@@ -169,15 +189,33 @@ async def scan_municipality(
         return entry
 
 
-async def run(output_path: Path) -> None:
-    municipalities = await fetch_wikidata()
+async def run(
+    output_path: Path,
+    country_config=None,
+    municipality_filter: str | None = None,
+    limit: int | None = None,
+) -> None:
+    municipalities = await fetch_wikidata(country_config)
+
+    if municipality_filter:
+        municipalities = {
+            k: v
+            for k, v in municipalities.items()
+            if municipality_filter.lower() in v["name"].lower()
+        }
+    if limit:
+        municipalities = dict(list(municipalities.items())[:limit])
+
     total = len(municipalities)
 
     print(f"\nScanning {total} municipalities for MX/SPF records...")
     print("(This takes a few minutes with async lookups)\n")
 
-    semaphore = asyncio.Semaphore(CONCURRENCY)
-    tasks = [scan_municipality(m, semaphore) for m in municipalities.values()]
+    concurrency = country_config.concurrency if country_config else CONCURRENCY
+    semaphore = asyncio.Semaphore(concurrency)
+    tasks = [
+        scan_municipality(m, semaphore, country_config) for m in municipalities.values()
+    ]
 
     results = {}
     done = 0

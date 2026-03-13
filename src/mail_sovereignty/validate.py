@@ -94,8 +94,13 @@ def _detect_potential_gateways(
     return results
 
 
-def score_entry(entry: dict[str, Any]) -> dict[str, Any]:
+def score_entry(
+    entry: dict[str, Any], manual_override_ids: set[str] | None = None
+) -> dict[str, Any]:
     """Score a municipality entry 0-100 with explanatory flags."""
+    _override_ids = (
+        manual_override_ids if manual_override_ids is not None else MANUAL_OVERRIDE_BFS
+    )
     provider = entry.get("provider", "unknown")
     domain = entry.get("domain", "")
     mx = entry.get("mx", [])
@@ -215,7 +220,7 @@ def score_entry(entry: dict[str, Any]) -> dict[str, Any]:
             flags.append(f"autodiscover_suggests:{ad_provider}")
 
     # Manual override (+5)
-    if bfs in MANUAL_OVERRIDE_BFS:
+    if bfs in _override_ids:
         score += 5
         flags.append("manual_override")
 
@@ -311,7 +316,12 @@ def print_report(scored_entries: list[dict[str, Any]]) -> None:
     print(f"\n{'=' * 60}\n")
 
 
-def run(data_path: Path, output_dir: Path, quality_gate: bool = False) -> bool:
+def run(
+    data_path: Path,
+    output_dir: Path,
+    quality_gate: bool = False,
+    country_config=None,
+) -> bool:
     try:
         with open(data_path, encoding="utf-8") as f:
             data = json.load(f)
@@ -322,8 +332,9 @@ def run(data_path: Path, output_dir: Path, quality_gate: bool = False) -> bool:
     municipalities = data["municipalities"]
     scored = []
 
+    override_ids = country_config.manual_override_ids_set if country_config else None
     for bfs, entry in municipalities.items():
-        result = score_entry(entry)
+        result = score_entry(entry, manual_override_ids=override_ids)
         scored.append(
             {
                 "bfs": entry["bfs"],
