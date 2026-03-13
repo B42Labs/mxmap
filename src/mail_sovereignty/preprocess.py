@@ -73,8 +73,10 @@ def guess_domains(
     return sorted(candidates)
 
 
-async def fetch_wikidata(country_config=None) -> dict[str, dict[str, str]]:
-    """Query Wikidata for municipalities."""
+async def fetch_wikidata(
+    country_config=None, *, max_retries: int = 4, base_delay: float = 5.0
+) -> dict[str, dict[str, str]]:
+    """Query Wikidata for municipalities with retry and exponential backoff."""
     if country_config:
         sparql_query = country_config.sparql_query
         sparql_url = country_config.sparql_url
@@ -88,14 +90,55 @@ async def fetch_wikidata(country_config=None) -> dict[str, dict[str, str]]:
         "Accept": "application/sparql-results+json",
         "User-Agent": "MXmap/1.0 (https://github.com/davidhuser/mxmap)",
     }
+    last_exception: Exception | None = None
     async with httpx.AsyncClient(timeout=120) as client:
-        r = await client.post(
-            sparql_url,
-            data={"query": sparql_query},
-            headers=headers,
-        )
-        r.raise_for_status()
-        data = r.json()
+        for attempt in range(max_retries + 1):
+            try:
+                r = await client.post(
+                    sparql_url,
+                    data={"query": sparql_query},
+                    headers=headers,
+                )
+                r.raise_for_status()
+                data = r.json()
+                break
+            except httpx.HTTPStatusError as exc:
+                last_exception = exc
+                if exc.response.status_code in (429, 403) and attempt < max_retries:
+                    delay = base_delay * (2**attempt)
+                    print(
+                        f"  Rate limited ({exc.response.status_code}), "
+                        f"retrying in {delay:.0f}s (attempt {attempt + 1}/{max_retries})..."
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+            except httpx.TimeoutException as exc:
+                last_exception = exc
+                if attempt < max_retries:
+                    delay = base_delay * (2**attempt)
+                    print(
+                        f"  Request timed out, "
+                        f"retrying in {delay:.0f}s (attempt {attempt + 1}/{max_retries})..."
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+            except httpx.RequestError as exc:
+                last_exception = exc
+                if attempt < max_retries:
+                    delay = base_delay * (2**attempt)
+                    print(
+                        f"  Connection error ({type(exc).__name__}), "
+                        f"retrying in {delay:.0f}s (attempt {attempt + 1}/{max_retries})..."
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+        else:
+            raise RuntimeError(
+                "Wikidata query failed after all retries"
+            ) from last_exception
 
     municipalities = {}
     for row in data["results"]["bindings"]:
