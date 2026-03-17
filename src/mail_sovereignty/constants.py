@@ -76,6 +76,13 @@ HYPERSCALER_ASNS = frozenset(
     }
 )
 
+MAILBOX_ASNS: dict[int, str] = {
+    8075: "microsoft",  # Microsoft Corp
+    8070: "microsoft",  # Microsoft Corp
+    3598: "microsoft",  # Microsoft Corp
+    15169: "google",  # Google LLC
+}
+
 SMTP_BANNER_KEYWORDS = {
     "microsoft": [
         "microsoft esmtp mail service",

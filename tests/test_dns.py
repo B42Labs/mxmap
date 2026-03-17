@@ -5,6 +5,7 @@ import dns.resolver
 import pytest
 
 from mail_sovereignty.dns import (
+    _spf_representative_ips,
     get_resolvers,
     lookup_a,
     lookup_asn_cymru,
@@ -20,6 +21,7 @@ from mail_sovereignty.dns import (
     resolve_mx_cnames,
     resolve_mx_ips,
     resolve_mx_ptrs,
+    resolve_spf_asns,
     resolve_spf_includes,
 )
 
@@ -938,3 +940,80 @@ class TestResolveAsnsFromIps:
         ):
             result = await resolve_asns_from_ips({"mail.example.de": ["1.2.3.4"]})
         assert result == set()
+
+
+class TestSpfRepresentativeIps:
+    def test_single_ip4(self):
+        result = _spf_representative_ips("v=spf1 ip4:40.92.0.0/24 -all")
+        assert len(result) == 1
+        assert result[0].startswith("40.92.0.")
+
+    def test_multiple_ip4_same_slash24(self):
+        """Two ip4 blocks in the same /24 should produce one representative."""
+        result = _spf_representative_ips("v=spf1 ip4:10.0.0.1 ip4:10.0.0.2 -all")
+        assert len(result) == 1
+
+    def test_multiple_ip4_different_slash24(self):
+        result = _spf_representative_ips("v=spf1 ip4:10.0.0.1 ip4:10.1.0.1 -all")
+        assert len(result) == 2
+
+    def test_no_ip4(self):
+        result = _spf_representative_ips("v=spf1 include:example.com -all")
+        assert result == []
+
+    def test_empty_string(self):
+        assert _spf_representative_ips("") == []
+
+    def test_invalid_ip4_skipped(self):
+        result = _spf_representative_ips("v=spf1 ip4:notanip -all")
+        assert result == []
+
+    def test_large_network_deduped(self):
+        """A /16 has many /24s; check we get one per /24."""
+        result = _spf_representative_ips("v=spf1 ip4:40.92.0.0/16 -all")
+        # /16 = 256 /24 blocks
+        assert len(result) == 256
+
+
+class TestResolveSpfAsns:
+    async def test_basic(self):
+        with patch(
+            "mail_sovereignty.dns.lookup_asn_cymru",
+            new_callable=AsyncMock,
+            return_value=8075,
+        ):
+            result = await resolve_spf_asns("v=spf1 ip4:40.92.0.0/24 -all")
+        assert result == {8075}
+
+    async def test_empty_spf(self):
+        result = await resolve_spf_asns("")
+        assert result == set()
+
+    async def test_no_ip4_directives(self):
+        result = await resolve_spf_asns("v=spf1 include:example.com -all")
+        assert result == set()
+
+    async def test_asn_lookup_failure_skipped(self):
+        with patch(
+            "mail_sovereignty.dns.lookup_asn_cymru",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await resolve_spf_asns("v=spf1 ip4:1.2.3.4 -all")
+        assert result == set()
+
+    async def test_multiple_networks_different_asns(self):
+        async def _asn(ip):
+            if ip.startswith("40."):
+                return 8075
+            return 15169
+
+        with patch(
+            "mail_sovereignty.dns.lookup_asn_cymru",
+            new_callable=AsyncMock,
+            side_effect=_asn,
+        ):
+            result = await resolve_spf_asns(
+                "v=spf1 ip4:40.92.0.0/24 ip4:74.125.0.0/24 -all"
+            )
+        assert result == {8075, 15169}

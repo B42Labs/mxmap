@@ -6,6 +6,7 @@ from mail_sovereignty.constants import (
     GATEWAY_KEYWORDS,
     GOOGLE_KEYWORDS,
     HYPERSCALER_ASNS,
+    MAILBOX_ASNS,
     MICROSOFT_KEYWORDS,
     PROVIDER_KEYWORDS,
     SMTP_BANNER_KEYWORDS,
@@ -56,6 +57,16 @@ def _check_spf_for_provider(spf_blob: str) -> str | None:
     """Check an SPF blob for hyperscaler keywords, return provider or None."""
     for provider, keywords in PROVIDER_KEYWORDS.items():
         if any(k in spf_blob for k in keywords):
+            return provider
+    return None
+
+
+def _classify_from_spf_asns(spf_asns: set[int] | None) -> str | None:
+    """Classify provider from ASNs resolved from SPF ip4: blocks."""
+    if not spf_asns:
+        return None
+    for provider in ("microsoft", "google"):
+        if any(MAILBOX_ASNS.get(a) == provider for a in spf_asns):
             return provider
     return None
 
@@ -117,6 +128,7 @@ def classify(
     autodiscover: dict[str, str] | None = None,
     mx_ptrs: dict[str, str] | None = None,
     mx_geoip_countries: set[str] | None = None,
+    spf_asns: set[int] | None = None,
     domestic: DomesticConfig | None = None,
 ) -> str:
     """Classify email provider based on MX, CNAME targets, and SPF.
@@ -166,6 +178,10 @@ def classify(
         ad_provider = classify_from_autodiscover(autodiscover)
         if ad_provider:
             return ad_provider
+        # Check SPF ip4: ASNs for mailbox-hosting hyperscaler
+        spf_asn_provider = _classify_from_spf_asns(spf_asns)
+        if spf_asn_provider:
+            return spf_asn_provider
         if domestic and _check_domestic(
             mx_records, mx_asns, mx_ptrs, mx_geoip_countries, domestic
         ):

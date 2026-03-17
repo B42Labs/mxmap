@@ -4,6 +4,7 @@ from mail_sovereignty.constants import (
     AWS_KEYWORDS,
     PROVIDER_KEYWORDS,
     FOREIGN_SENDER_KEYWORDS,
+    MAILBOX_ASNS,
     SKIP_DOMAINS,
 )
 
@@ -34,3 +35,17 @@ def test_skip_domains_contains_expected():
     assert "example.com" in SKIP_DOMAINS
     assert "sentry.io" in SKIP_DOMAINS
     assert "schema.org" in SKIP_DOMAINS
+
+
+def test_mailbox_asns_exists_and_has_expected_keys():
+    assert isinstance(MAILBOX_ASNS, dict)
+    assert 8075 in MAILBOX_ASNS
+    assert MAILBOX_ASNS[8075] == "microsoft"
+    assert 15169 in MAILBOX_ASNS
+    assert MAILBOX_ASNS[15169] == "google"
+
+
+def test_mailbox_asns_excludes_aws():
+    """AWS SES ASNs should not be in MAILBOX_ASNS."""
+    aws_asns = {14618, 16509}
+    assert aws_asns.isdisjoint(MAILBOX_ASNS.keys())

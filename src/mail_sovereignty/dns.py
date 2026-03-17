@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import logging
 import re
 
@@ -319,4 +320,46 @@ async def resolve_asns_from_ips(mx_ips: dict[str, list[str]]) -> set[int]:
             asn = await lookup_asn_cymru(ip)
             if asn is not None:
                 asns.add(asn)
+    return asns
+
+
+_SPF_IP4_RE = re.compile(r"\bip4:(\S+)", re.IGNORECASE)
+
+
+def _spf_representative_ips(spf_text: str) -> list[str]:
+    """Extract one representative IP per unique /24 from ip4: directives."""
+    seen_prefixes: set[str] = set()
+    result: list[str] = []
+    for raw in _SPF_IP4_RE.findall(spf_text):
+        try:
+            net = ipaddress.ip_network(raw, strict=False)
+        except ValueError:
+            continue
+        if net.prefixlen >= 24:
+            # Small network: just take the first host
+            for host in net.hosts():
+                prefix = str(ipaddress.ip_network(f"{host}/24", strict=False))
+                if prefix not in seen_prefixes:
+                    seen_prefixes.add(prefix)
+                    result.append(str(host))
+                break
+        else:
+            # Large network: iterate /24 subnets
+            for subnet in net.subnets(new_prefix=24):
+                prefix = str(subnet)
+                if prefix not in seen_prefixes:
+                    seen_prefixes.add(prefix)
+                    # First host of each /24
+                    result.append(str(next(subnet.hosts())))
+    return result
+
+
+async def resolve_spf_asns(spf_text: str) -> set[int]:
+    """Resolve ip4: blocks in SPF text to ASN numbers."""
+    ips = _spf_representative_ips(spf_text)
+    asns: set[int] = set()
+    for ip in ips:
+        asn = await lookup_asn_cymru(ip)
+        if asn is not None:
+            asns.add(asn)
     return asns

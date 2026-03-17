@@ -19,6 +19,7 @@ from mail_sovereignty.dns import (
     resolve_mx_cnames,
     resolve_mx_ips,
     resolve_mx_ptrs,
+    resolve_spf_asns,
     resolve_spf_includes,
 )
 
@@ -246,6 +247,7 @@ async def scan_municipality(
         mx_ptrs = await resolve_mx_ptrs(mx_ips) if mx_ips else {}
         mx_geoip_countries = geoip.countries_for_mx_ips(mx_ips) if mx_ips else set()
         autodiscover = await lookup_autodiscover(domain) if domain else {}
+        spf_asns = await resolve_spf_asns(spf_resolved or spf) if spf else set()
 
         domestic = country_config.domestic_config if country_config else None
         provider = classify(
@@ -257,6 +259,7 @@ async def scan_municipality(
             autodiscover=autodiscover or None,
             mx_ptrs=mx_ptrs or None,
             mx_geoip_countries=mx_geoip_countries or None,
+            spf_asns=spf_asns or None,
             domestic=domestic,
         )
         gateway = detect_gateway(mx) if mx else None
@@ -282,6 +285,8 @@ async def scan_municipality(
             entry["mx_ptrs"] = mx_ptrs
         if mx_geoip_countries:
             entry["mx_geoip_countries"] = sorted(mx_geoip_countries)
+        if spf_asns:
+            entry["spf_asns"] = sorted(spf_asns)
         if autodiscover:
             entry["autodiscover"] = autodiscover
         return entry

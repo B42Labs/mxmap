@@ -44,6 +44,12 @@ manual_override_ids = []
 20773 = "Host Europe"
 61157 = "Profihost"
 680 = "DFN"
+31334 = "Vodafone Kabel Deutschland"
+16276 = "OVH"
+15817 = "Mittwald CM Service"
+34240 = "manitu"
+21499 = "Host Europe"
+33846 = "Dataport"
 
 [map]
 center_lat = 51.1

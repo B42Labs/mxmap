@@ -1,5 +1,6 @@
 from mail_sovereignty.classify import (
     DomesticConfig,
+    _classify_from_spf_asns,
     classify,
     classify_from_autodiscover,
     classify_from_mx,
@@ -650,3 +651,96 @@ class TestDomesticClassification:
             domestic=DE_DOMESTIC,
         )
         assert result == "independent"
+
+
+# ── _classify_from_spf_asns() ─────────────────────────────────────
+
+
+class TestClassifyFromSpfAsns:
+    def test_none_returns_none(self):
+        assert _classify_from_spf_asns(None) is None
+
+    def test_empty_set_returns_none(self):
+        assert _classify_from_spf_asns(set()) is None
+
+    def test_microsoft_asn(self):
+        assert _classify_from_spf_asns({8075}) == "microsoft"
+
+    def test_google_asn(self):
+        assert _classify_from_spf_asns({15169}) == "google"
+
+    def test_unknown_asn_returns_none(self):
+        assert _classify_from_spf_asns({99999}) is None
+
+    def test_microsoft_takes_priority_over_google(self):
+        """When both Microsoft and Google ASNs present, microsoft wins."""
+        assert _classify_from_spf_asns({8075, 15169}) == "microsoft"
+
+    def test_all_microsoft_asns(self):
+        assert _classify_from_spf_asns({8070}) == "microsoft"
+        assert _classify_from_spf_asns({3598}) == "microsoft"
+
+
+# ── SPF-ASN integration in classify() ────────────────────────────
+
+
+class TestClassifySpfAsnIntegration:
+    def test_spf_asn_microsoft_over_independent(self):
+        """Independent MX + Microsoft SPF ASN -> microsoft."""
+        result = classify(
+            ["mail.example.de"],
+            "v=spf1 ip4:40.92.0.0/24 -all",
+            spf_asns={8075},
+        )
+        assert result == "microsoft"
+
+    def test_spf_asn_after_autodiscover(self):
+        """Autodiscover takes precedence over SPF ASN."""
+        result = classify(
+            ["mail.example.de"],
+            "",
+            autodiscover={"autodiscover_cname": "autodiscover.outlook.com"},
+            spf_asns={15169},  # Google ASN — should be ignored
+        )
+        assert result == "microsoft"
+
+    def test_spf_asn_before_domestic(self):
+        """SPF ASN takes precedence over domestic ISP classification."""
+        result = classify(
+            ["mail.example.de"],
+            "v=spf1 ip4:40.92.0.0/24 -all",
+            mx_asns={24940},  # Hetzner — domestic
+            spf_asns={8075},  # Microsoft
+            domestic=DE_DOMESTIC,
+        )
+        assert result == "microsoft"
+
+    def test_spf_asn_none_no_change(self):
+        """Backward compat: spf_asns=None doesn't change classification."""
+        result = classify(
+            ["mail.example.de"],
+            "",
+            spf_asns=None,
+            domestic=DE_DOMESTIC,
+        )
+        # Should use .de TLD heuristic -> german-isp
+        assert result == "german-isp"
+
+    def test_spf_asn_empty_set_no_change(self):
+        """Empty spf_asns set doesn't change classification."""
+        result = classify(
+            ["mail.example.de"],
+            "",
+            spf_asns=set(),
+            domestic=DE_DOMESTIC,
+        )
+        assert result == "german-isp"
+
+    def test_spf_asn_google_over_independent(self):
+        """Independent MX + Google SPF ASN -> google."""
+        result = classify(
+            ["mail.example.com"],
+            "v=spf1 ip4:74.125.0.0/24 -all",
+            spf_asns={15169},
+        )
+        assert result == "google"
