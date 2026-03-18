@@ -168,12 +168,30 @@
   }
   .legend-item:hover { background: #f0f0f0; }
   .legend-item.dimmed { opacity: 0.3; }
+  .legend-search {
+    margin: 6px 0 8px 0;
+  }
+  .legend-search input {
+    width: 100%;
+    padding: 5px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 12px;
+    outline: none;
+  }
+  .legend-search input:focus {
+    border-color: #2563EB;
+    box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
+  }
+  .legend-item.hidden-by-search { display: none; }
+  .legend-group.hidden-by-search { display: none; }
   .legend-filter-hint {
     font-size: 10px; color: #999; margin-top: 6px; display: none;
     cursor: pointer;
   }
   .legend-filter-hint:hover { color: #333; text-decoration: underline; }
   .legend-filter-hint.active { display: block; }
+  .legend-content { max-height: 70vh; overflow-y: auto; }
 </style>
 </head>
 <body>
@@ -244,6 +262,12 @@ const PUBLIC_IT_SPLIT_COLORS = [
   '#0F766E', '#14B8A6', '#0D9488', '#22C55E', '#65A30D'
 ];
 
+const HOSTED_PROVIDER_SPLIT_COLORS = [
+  '#D97706', '#B45309', '#F59E0B', '#FBBF24', '#92400E',
+  '#CA8A04', '#EAB308', '#A16207', '#854D0E', '#D4A017',
+  '#E8A317', '#C68E17', '#AF7817', '#8B6914', '#7F5217'
+];
+
 const LABELS = {
   microsoft:          'Microsoft 365',
   google:             'Google Workspace',
@@ -262,14 +286,19 @@ const PUBLIC_IT_DOMAINS = {{ map.public_it_domains | tojson }};
 const ASN_NAMES = {{ asn_names | tojson }};
 
 let splitPublicIt = false;
+let splitHostedProvider = false;
 let geojsonLayer = null;
 let currentCounts = null;
 let currentMunicipalities = null;
 let publicItTopKeys = [];
 let publicItColorMap = {};
 let publicItAsnMap = {};
+let hostedProviderTopKeys = [];
+let hostedProviderColorMap = {};
+let hostedProviderAsnMap = {};
 let detailCounts = {};
 let selectedProviders = null; // null = all visible, Set = only these visible
+let searchQuery = '';
 
 function buildPublicItTopKeys(detailCounts) {
   if (!detailCounts) return [];
@@ -288,9 +317,24 @@ function setupPublicItColors(keys) {
   });
 }
 
+function buildHostedProviderTopKeys(detailCounts) {
+  if (!detailCounts) return [];
+  const hpNames = new Set(Object.values(hostedProviderAsnMap));
+  const entries = Object.entries(detailCounts)
+    .filter(function(e) { return hpNames.has(e[0]); })
+    .sort(function(a, b) { return b[1] - a[1]; });
+  return entries.slice(0, 15).map(function(e) { return e[0]; });
+}
+
+function setupHostedProviderColors(keys) {
+  hostedProviderColorMap = {};
+  keys.forEach(function(key, index) {
+    hostedProviderColorMap[key] = HOSTED_PROVIDER_SPLIT_COLORS[index] || COLORS['hosted-provider'];
+  });
+}
+
 function getPublicItDetail(m) {
   if (!m || m.provider !== 'public-it') return null;
-  // Try mx_asns lookup
   if (m.mx_asns && m.mx_asns.length > 0) {
     for (var i = 0; i < m.mx_asns.length; i++) {
       var name = publicItAsnMap[String(m.mx_asns[i])];
@@ -300,12 +344,30 @@ function getPublicItDetail(m) {
   return null;
 }
 
+function getHostedProviderDetail(m) {
+  if (!m || m.provider !== 'hosted-provider') return null;
+  if (m.mx_asns && m.mx_asns.length > 0) {
+    for (var i = 0; i < m.mx_asns.length; i++) {
+      var name = hostedProviderAsnMap[String(m.mx_asns[i])];
+      if (name) return name;
+    }
+  }
+  return null;
+}
+
 function getProviderKey(m) {
   if (!m) return 'unknown';
-  if (!splitPublicIt || m.provider !== 'public-it') return m.provider || 'unknown';
-  var detail = getPublicItDetail(m);
-  if (detail && publicItTopKeys.indexOf(detail) !== -1) return 'public-it:' + detail;
-  return 'public-it:other';
+  if (splitPublicIt && m.provider === 'public-it') {
+    var detail = getPublicItDetail(m);
+    if (detail && publicItTopKeys.indexOf(detail) !== -1) return 'public-it:' + detail;
+    return 'public-it:other';
+  }
+  if (splitHostedProvider && m.provider === 'hosted-provider') {
+    var hpDetail = getHostedProviderDetail(m);
+    if (hpDetail && hostedProviderTopKeys.indexOf(hpDetail) !== -1) return 'hosted-provider:' + hpDetail;
+    return 'hosted-provider:other';
+  }
+  return m.provider || 'unknown';
 }
 
 function getColor(key) {
@@ -313,6 +375,11 @@ function getColor(key) {
     var detail = key.slice('public-it:'.length);
     if (detail === 'other') return '#93C5FD';
     return publicItColorMap[detail] || COLORS['public-it'];
+  }
+  if (key.indexOf('hosted-provider:') === 0) {
+    var hpDetail = key.slice('hosted-provider:'.length);
+    if (hpDetail === 'other') return '#FDE68A';
+    return hostedProviderColorMap[hpDetail] || COLORS['hosted-provider'];
   }
   return COLORS[key] || COLORS.unknown;
 }
@@ -323,6 +390,11 @@ function getLabel(key) {
     if (detail === 'other') return 'Kommunale IT / Sonstige';
     return detail;
   }
+  if (key.indexOf('hosted-provider:') === 0) {
+    var hpDetail = key.slice('hosted-provider:'.length);
+    if (hpDetail === 'other') return 'Kommerz. Hoster / Sonstige';
+    return hpDetail;
+  }
   return LABELS[key] || key;
 }
 
@@ -330,22 +402,36 @@ function getTextColor(key) {
   if (key === 'google' || key === 'hosted-provider' || key === 'unknown') return '#333';
   if (key === 'aws') return '#333';
   if (key.indexOf('public-it') === 0) return '#fff';
+  if (key.indexOf('hosted-provider:') === 0) return '#fff';
   return '#fff';
 }
 
 function getEffectiveCounts(counts) {
-  if (!splitPublicIt) return counts;
   var effective = Object.assign({}, counts);
-  var totalPublicIt = effective['public-it'] || 0;
-  delete effective['public-it'];
-  var assigned = 0;
-  for (var i = 0; i < publicItTopKeys.length; i++) {
-    var key = publicItTopKeys[i];
-    var value = (detailCounts && detailCounts[key]) || 0;
-    effective['public-it:' + key] = value;
-    assigned += value;
+  if (splitPublicIt) {
+    var totalPublicIt = effective['public-it'] || 0;
+    delete effective['public-it'];
+    var assigned = 0;
+    for (var i = 0; i < publicItTopKeys.length; i++) {
+      var key = publicItTopKeys[i];
+      var value = (detailCounts && detailCounts[key]) || 0;
+      effective['public-it:' + key] = value;
+      assigned += value;
+    }
+    effective['public-it:other'] = Math.max(0, totalPublicIt - assigned);
   }
-  effective['public-it:other'] = Math.max(0, totalPublicIt - assigned);
+  if (splitHostedProvider) {
+    var totalHp = effective['hosted-provider'] || 0;
+    delete effective['hosted-provider'];
+    var hpAssigned = 0;
+    for (var i = 0; i < hostedProviderTopKeys.length; i++) {
+      var hpKey = hostedProviderTopKeys[i];
+      var hpValue = (detailCounts && detailCounts[hpKey]) || 0;
+      effective['hosted-provider:' + hpKey] = hpValue;
+      hpAssigned += hpValue;
+    }
+    effective['hosted-provider:other'] = Math.max(0, totalHp - hpAssigned);
+  }
   return effective;
 }
 
@@ -640,17 +726,24 @@ function renderLegendContent(div, counts) {
   var publicItKeys = splitPublicIt
     ? publicItTopKeys.map(function(k) { return 'public-it:' + k; }).concat(['public-it:other'])
     : ['public-it'];
+  var hostedProviderKeys = splitHostedProvider
+    ? hostedProviderTopKeys.map(function(k) { return 'hosted-provider:' + k; }).concat(['hosted-provider:other'])
+    : ['hosted-provider'];
   var isMobile = window.innerWidth <= 600;
   div.innerHTML =
     '<button class="legend-toggle" aria-label="Legende umschalten" aria-expanded="' + (!isMobile) + '">' + (isMobile ? 'Legende \u25B8' : '') + '</button>' +
     '<div class="legend-content">' +
     '<strong>E-Mail-Provider</strong>' +
-    '<div class="legend-mode"><label><input type="checkbox" id="split-public-it-toggle"' + (splitPublicIt ? ' checked' : '') + '> Kommunale IT aufschl\u00fcsseln</label></div>' +
+    '<div class="legend-search"><input type="text" id="legend-search-input" placeholder="Provider suchen\u2026" value="' + escapeHtml(searchQuery) + '" /></div>' +
+    '<div class="legend-mode">' +
+    '<label><input type="checkbox" id="split-public-it-toggle"' + (splitPublicIt ? ' checked' : '') + '> Kommunale IT aufschl\u00fcsseln</label>' +
+    '<label style="margin-top:4px"><input type="checkbox" id="split-hosted-provider-toggle"' + (splitHostedProvider ? ' checked' : '') + '> Kommerz. Hoster aufschl\u00fcsseln</label>' +
+    '</div>' +
     legendGroupHtml('US-Hyperscaler', ['microsoft', 'aws', 'google'], effectiveCounts) +
     legendGroupHtml('Kommunale / \u00f6ffentliche IT', publicItKeys, effectiveCounts) +
-    legendGroupHtml('Hosting / Gateway', ['hosted-provider', 'gateway'], effectiveCounts) +
+    legendGroupHtml('Hosting / Gateway', hostedProviderKeys.concat(['gateway']), effectiveCounts) +
     legendGroupHtml('Sonstige', ['independent', 'german-isp', 'unknown'].filter(function(k) { return effectiveCounts[k]; }), effectiveCounts) +
-    '<div class="legend-filter-hint' + (selectedProviders ? ' active' : '') + '" id="legend-reset-filter">Filter zur\u00fccksetzen</div>' +
+    '<div class="legend-filter-hint' + (selectedProviders || searchQuery ? ' active' : '') + '" id="legend-reset-filter">Filter zur\u00fccksetzen</div>' +
     '</div>';
 }
 
@@ -661,6 +754,15 @@ function bindLegendControls() {
   if (toggleButton) toggleButton.addEventListener('click', toggleLegend);
   var splitToggle = legendDiv.querySelector('#split-public-it-toggle');
   if (splitToggle) splitToggle.addEventListener('change', handleSplitToggle);
+  var splitHpToggle = legendDiv.querySelector('#split-hosted-provider-toggle');
+  if (splitHpToggle) splitHpToggle.addEventListener('change', handleHostedProviderSplitToggle);
+  // Search handler
+  var searchInput = legendDiv.querySelector('#legend-search-input');
+  if (searchInput) {
+    searchInput.addEventListener('input', handleSearchInput);
+    // Apply existing search filter after rerender
+    if (searchQuery) applySearchFilter(searchQuery);
+  }
   // Legend item click handlers for filtering
   legendDiv.querySelectorAll('.legend-item').forEach(function(el) {
     el.addEventListener('click', function() {
@@ -670,6 +772,7 @@ function bindLegendControls() {
   });
   var resetBtn = legendDiv.querySelector('#legend-reset-filter');
   if (resetBtn) resetBtn.addEventListener('click', function() {
+    searchQuery = '';
     selectedProviders = null;
     rerenderLegend();
     refreshLayerStyles();
@@ -678,23 +781,93 @@ function bindLegendControls() {
 
 function handleSplitToggle(event) {
   splitPublicIt = event.target.checked;
-  selectedProviders = null; // reset filter on mode change
+  searchQuery = '';
+  selectedProviders = null;
   rerenderLegend();
   refreshLayerStyles();
 }
 
+function handleHostedProviderSplitToggle(event) {
+  splitHostedProvider = event.target.checked;
+  searchQuery = '';
+  selectedProviders = null;
+  rerenderLegend();
+  refreshLayerStyles();
+}
+
+function getAllLegendKeys() {
+  var effectiveCounts = getEffectiveCounts(currentCounts);
+  return Object.keys(effectiveCounts);
+}
+
+function applySearchFilter(query) {
+  var legendDiv = document.querySelector('.legend');
+  if (!legendDiv) return;
+  var q = query.toLowerCase().trim();
+  var matchingKeys = new Set();
+  legendDiv.querySelectorAll('.legend-item').forEach(function(el) {
+    var key = el.getAttribute('data-key');
+    var label = getLabel(key).toLowerCase();
+    if (!q || label.indexOf(q) !== -1) {
+      el.classList.remove('hidden-by-search');
+      matchingKeys.add(key);
+    } else {
+      el.classList.add('hidden-by-search');
+    }
+  });
+  // Hide group headers if all items in group are hidden
+  legendDiv.querySelectorAll('.legend-group').forEach(function(group) {
+    var visibleItems = group.querySelectorAll('.legend-item:not(.hidden-by-search)');
+    if (visibleItems.length === 0 && q) {
+      group.classList.add('hidden-by-search');
+    } else {
+      group.classList.remove('hidden-by-search');
+    }
+  });
+  if (q) {
+    selectedProviders = matchingKeys.size > 0 ? matchingKeys : new Set(['__none__']);
+  } else {
+    selectedProviders = null;
+  }
+  // Update dimmed state
+  legendDiv.querySelectorAll('.legend-item').forEach(function(el) {
+    var key = el.getAttribute('data-key');
+    if (selectedProviders && !selectedProviders.has(key)) {
+      el.classList.add('dimmed');
+    } else {
+      el.classList.remove('dimmed');
+    }
+  });
+  // Update reset hint
+  var hint = legendDiv.querySelector('#legend-reset-filter');
+  if (hint) {
+    if (selectedProviders || q) {
+      hint.classList.add('active');
+    } else {
+      hint.classList.remove('active');
+    }
+  }
+}
+
+function handleSearchInput(event) {
+  searchQuery = event.target.value;
+  applySearchFilter(searchQuery);
+  refreshLayerStyles();
+}
+
 function handleLegendItemClick(key) {
+  // Clear search when clicking legend items
+  if (searchQuery) {
+    searchQuery = '';
+  }
   if (!selectedProviders) {
-    // First click: select only this provider
     selectedProviders = new Set([key]);
   } else if (selectedProviders.has(key)) {
-    // Deselect this provider
     selectedProviders.delete(key);
     if (selectedProviders.size === 0) {
-      selectedProviders = null; // all deselected = show all
+      selectedProviders = null;
     }
   } else {
-    // Add this provider to selection
     selectedProviders.add(key);
   }
   rerenderLegend();
@@ -740,11 +913,14 @@ async function loadData() {
   currentMunicipalities = muni;
   currentCounts = dnsData.counts;
 
-  // Set up public-it split data
+  // Set up split data for public-it and hosted-provider
   detailCounts = dnsData.detail_counts || {};
   publicItAsnMap = dnsData.public_it_asns || {};
   publicItTopKeys = buildPublicItTopKeys(detailCounts);
   setupPublicItColors(publicItTopKeys);
+  hostedProviderAsnMap = dnsData.hosted_provider_asns || {};
+  hostedProviderTopKeys = buildHostedProviderTopKeys(detailCounts);
+  setupHostedProviderColors(hostedProviderTopKeys);
 
   if (dnsData.generated) {
     const date = new Date(dnsData.generated);

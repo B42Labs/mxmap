@@ -300,9 +300,7 @@ async def scan_municipality(
         if txt_verifications:
             entry["txt_verifications"] = txt_verifications
         if mx_ips:
-            entry["mx_ips"] = {
-                host: sorted(ips) for host, ips in mx_ips.items()
-            }
+            entry["mx_ips"] = {host: sorted(ips) for host, ips in mx_ips.items()}
         return entry
 
 
@@ -412,13 +410,16 @@ async def run(
     sorted_counts = dict(sorted(counts.items()))
     sorted_munis = dict(sorted(results.items(), key=lambda kv: int(kv[0])))
 
-    # Build public-it ASN mapping for frontend split toggle
+    # Build ASN mappings for frontend split toggles
     domestic = country_config.domestic_config if country_config else None
     public_it_asns: dict[str, str] = {}
+    hosted_provider_asns: dict[str, str] = {}
     if domestic and domestic.asn_categories:
         for asn, cat in domestic.asn_categories.items():
             if cat == "public-it":
                 public_it_asns[str(asn)] = domestic.asns.get(asn, "")
+            elif cat == "hosted-provider":
+                hosted_provider_asns[str(asn)] = domestic.asns.get(asn, "")
 
     output: dict[str, Any] = {
         "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -430,6 +431,8 @@ async def run(
         output["detail_counts"] = dict(sorted(detail_counts.items()))
     if public_it_asns:
         output["public_it_asns"] = public_it_asns
+    if hosted_provider_asns:
+        output["hosted_provider_asns"] = hosted_provider_asns
 
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=None, separators=(",", ":"))
