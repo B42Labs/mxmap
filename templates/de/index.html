@@ -159,6 +159,21 @@
     color: #334155;
     cursor: pointer;
   }
+  .legend-item {
+    cursor: pointer;
+    padding: 1px 4px;
+    border-radius: 3px;
+    transition: opacity 0.15s;
+    user-select: none;
+  }
+  .legend-item:hover { background: #f0f0f0; }
+  .legend-item.dimmed { opacity: 0.3; }
+  .legend-filter-hint {
+    font-size: 10px; color: #999; margin-top: 6px; display: none;
+    cursor: pointer;
+  }
+  .legend-filter-hint:hover { color: #333; text-decoration: underline; }
+  .legend-filter-hint.active { display: block; }
 </style>
 </head>
 <body>
@@ -254,6 +269,7 @@ let publicItTopKeys = [];
 let publicItColorMap = {};
 let publicItAsnMap = {};
 let detailCounts = {};
+let selectedProviders = null; // null = all visible, Set = only these visible
 
 function buildPublicItTopKeys(detailCounts) {
   if (!detailCounts) return [];
@@ -607,14 +623,15 @@ function legendItemHtml(key, counts) {
   const bg = key === 'unknown'
     ? "background-image:url('" + hatchSvg + "')"
     : 'background:' + getColor(key);
-  return '<i style="' + bg + '"></i>' + getLabel(key) + ' (' + (counts[key] || 0) + ')';
+  const dimmed = selectedProviders && !selectedProviders.has(key) ? ' dimmed' : '';
+  return '<div class="legend-item' + dimmed + '" data-key="' + escapeHtml(key) + '"><i style="' + bg + '"></i>' + getLabel(key) + ' (' + (counts[key] || 0) + ')</div>';
 }
 
 function legendGroupHtml(label, keys, counts) {
   const heading = label
     ? '<span class="legend-group-label">' + label + '</span>'
     : '';
-  const items = keys.map(function(k) { return legendItemHtml(k, counts); }).join('<br>');
+  const items = keys.map(function(k) { return legendItemHtml(k, counts); }).join('');
   return '<div class="legend-group">' + heading + items + '</div>';
 }
 
@@ -633,6 +650,7 @@ function renderLegendContent(div, counts) {
     legendGroupHtml('Kommunale / \u00f6ffentliche IT', publicItKeys, effectiveCounts) +
     legendGroupHtml('Hosting / Gateway', ['hosted-provider', 'gateway'], effectiveCounts) +
     legendGroupHtml('Sonstige', ['independent', 'german-isp', 'unknown'].filter(function(k) { return effectiveCounts[k]; }), effectiveCounts) +
+    '<div class="legend-filter-hint' + (selectedProviders ? ' active' : '') + '" id="legend-reset-filter">Filter zur\u00fccksetzen</div>' +
     '</div>';
 }
 
@@ -643,17 +661,53 @@ function bindLegendControls() {
   if (toggleButton) toggleButton.addEventListener('click', toggleLegend);
   var splitToggle = legendDiv.querySelector('#split-public-it-toggle');
   if (splitToggle) splitToggle.addEventListener('change', handleSplitToggle);
+  // Legend item click handlers for filtering
+  legendDiv.querySelectorAll('.legend-item').forEach(function(el) {
+    el.addEventListener('click', function() {
+      var key = this.getAttribute('data-key');
+      handleLegendItemClick(key);
+    });
+  });
+  var resetBtn = legendDiv.querySelector('#legend-reset-filter');
+  if (resetBtn) resetBtn.addEventListener('click', function() {
+    selectedProviders = null;
+    rerenderLegend();
+    refreshLayerStyles();
+  });
 }
 
 function handleSplitToggle(event) {
   splitPublicIt = event.target.checked;
+  selectedProviders = null; // reset filter on mode change
+  rerenderLegend();
+  refreshLayerStyles();
+}
+
+function handleLegendItemClick(key) {
+  if (!selectedProviders) {
+    // First click: select only this provider
+    selectedProviders = new Set([key]);
+  } else if (selectedProviders.has(key)) {
+    // Deselect this provider
+    selectedProviders.delete(key);
+    if (selectedProviders.size === 0) {
+      selectedProviders = null; // all deselected = show all
+    }
+  } else {
+    // Add this provider to selection
+    selectedProviders.add(key);
+  }
+  rerenderLegend();
+  refreshLayerStyles();
+}
+
+function rerenderLegend() {
   var legendDiv = document.querySelector('.legend');
   if (!legendDiv) return;
   var collapsed = legendDiv.classList.contains('legend-collapsed');
   renderLegendContent(legendDiv, currentCounts);
   if (collapsed) legendDiv.classList.add('legend-collapsed');
   bindLegendControls();
-  refreshLayerStyles();
 }
 
 function refreshLayerStyles() {
@@ -663,11 +717,12 @@ function refreshLayerStyles() {
     var id = String(feature.id || feature.properties.id || feature.properties.AGS || '');
     var m = currentMunicipalities[id];
     var providerKey = getProviderKey(m);
+    var visible = !selectedProviders || selectedProviders.has(providerKey);
     layer.setStyle({
       fillColor: getColor(providerKey),
-      weight: 0.5,
+      weight: visible ? 0.5 : 0,
       color: '#666',
-      fillOpacity: 0.75
+      fillOpacity: visible ? 0.75 : 0.03
     });
   });
 }
