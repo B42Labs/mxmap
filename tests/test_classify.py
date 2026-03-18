@@ -102,19 +102,19 @@ class TestClassify:
         )
         assert result[0] == "google"
 
-    def test_gateway_no_hyperscaler_spf_stays_independent(self):
+    def test_gateway_no_hyperscaler_spf_classified_as_gateway(self):
         result = classify(
             ["filter.seppmail.cloud"],
             "v=spf1 ip4:1.2.3.4 -all",
         )
-        assert result[0] == "independent"
+        assert result[0] == "gateway"
 
-    def test_gateway_empty_spf_stays_independent(self):
+    def test_gateway_empty_spf_classified_as_gateway(self):
         result = classify(
             ["filter.seppmail.cloud"],
             "",
         )
-        assert result[0] == "independent"
+        assert result[0] == "gateway"
 
     def test_gateway_microsoft_in_resolved_spf(self):
         result = classify(
@@ -189,12 +189,12 @@ class TestClassify:
         )
         assert result[0] == "microsoft"
 
-    def test_spamvor_gateway_stays_independent_no_hyperscaler_spf(self):
+    def test_spamvor_gateway_classified_as_gateway(self):
         result = classify(
             ["relay.spamvor.com"],
             "v=spf1 ip4:1.2.3.4 -all",
         )
-        assert result[0] == "independent"
+        assert result[0] == "gateway"
 
     def test_gateway_does_not_override_direct_mx_match(self):
         """If MX directly matches a provider, gateway check is skipped."""
@@ -249,21 +249,21 @@ class TestClassify:
         )
         assert result[0] == "independent"
 
-    def test_gateway_empty_autodiscover_stays_independent(self):
+    def test_gateway_empty_autodiscover_classified_as_gateway(self):
         result = classify(
             ["filter.seppmail.cloud"],
             "",
             autodiscover={},
         )
-        assert result[0] == "independent"
+        assert result[0] == "gateway"
 
-    def test_gateway_autodiscover_none_stays_independent(self):
+    def test_gateway_autodiscover_none_classified_as_gateway(self):
         result = classify(
             ["filter.seppmail.cloud"],
             "",
             autodiscover=None,
         )
-        assert result[0] == "independent"
+        assert result[0] == "gateway"
 
     # ── SPF-only resolved fallback ──
 
@@ -396,13 +396,13 @@ class TestGatewayHardening:
         assert result[0] == "google"
         assert "TXT verification" in result[1]
 
-    def test_gateway_no_signals_falls_through(self):
-        """Gateway with no SPF/AD/DKIM/TXT -> falls through to independent."""
+    def test_gateway_no_signals_classified_as_gateway(self):
+        """Gateway with no SPF/AD/DKIM/TXT -> classified as gateway."""
         result = classify(
             ["filter.seppmail.cloud"],
             "v=spf1 ip4:1.2.3.4 -all",
         )
-        assert result[0] == "independent"
+        assert result[0] == "gateway"
 
     def test_gateway_spf_alone_when_no_other_signals(self):
         """SPF trusted alone when no DKIM or autodiscover available."""
@@ -731,7 +731,13 @@ class TestClassifyFromSmtpBanner:
 
 
 DE_DOMESTIC = DomesticConfig(
-    asns={3320: "Deutsche Telekom", 24940: "Hetzner", 8560: "IONOS"},
+    asns={3320: "Deutsche Telekom", 24940: "Hetzner", 8560: "IONOS", 9197: "ekom21"},
+    asn_categories={
+        9197: "public-it",
+        3320: "hosted-provider",
+        24940: "hosted-provider",
+        8560: "hosted-provider",
+    },
     domains=["strato.de", "hetzner.com", "ionos.com"],
     country_tlds=[".de"],
     target_country="DE",
@@ -740,6 +746,7 @@ DE_DOMESTIC = DomesticConfig(
 
 CH_DOMESTIC = DomesticConfig(
     asns={3303: "Swisscom", 29691: "Hostpoint"},
+    asn_categories={},
     domains=["cyon.net", "hostpoint.ch"],
     country_tlds=[".ch", ".swiss"],
     target_country="CH",
@@ -748,14 +755,35 @@ CH_DOMESTIC = DomesticConfig(
 
 
 class TestDomesticClassification:
-    def test_asn_match(self):
+    def test_asn_match_hosted_provider(self):
         result = classify(
             ["mail.example.de"],
             "",
             mx_asns={24940},
             domestic=DE_DOMESTIC,
         )
-        assert result[0] == "german-isp"
+        assert result[0] == "hosted-provider"
+
+    def test_asn_match_public_it(self):
+        result = classify(
+            ["mail.example.de"],
+            "",
+            mx_asns={9197},
+            domestic=DE_DOMESTIC,
+        )
+        assert result[0] == "public-it"
+        assert "ekom21" in result[1]
+
+    def test_asn_match_mixed_categories_prefers_public_it(self):
+        """When MX ASNs span both public-it and hosted-provider, public-it wins."""
+        result = classify(
+            ["mail.example.de"],
+            "",
+            mx_asns={9197, 24940},  # ekom21 (public-it) + Hetzner (hosted-provider)
+            domestic=DE_DOMESTIC,
+        )
+        assert result[0] == "public-it"
+        assert "ekom21" in result[1]
 
     def test_geoip_match_non_hyperscaler(self):
         result = classify(
@@ -795,7 +823,7 @@ class TestDomesticClassification:
             mx_ptrs={"1.2.3.4": "mail.strato.de"},
             domestic=DE_DOMESTIC,
         )
-        assert result[0] == "german-isp"
+        assert result[0] == "german-isp"  # weak signal, uses fallback label
 
     def test_ptr_tld_match(self):
         result = classify(
@@ -804,7 +832,7 @@ class TestDomesticClassification:
             mx_ptrs={"1.2.3.4": "server.someprovider.de"},
             domestic=DE_DOMESTIC,
         )
-        assert result[0] == "german-isp"
+        assert result[0] == "german-isp"  # weak signal, uses fallback label
 
     def test_mx_domain_match(self):
         result = classify(
@@ -812,7 +840,9 @@ class TestDomesticClassification:
             "",
             domestic=DE_DOMESTIC,
         )
-        assert result[0] == "german-isp"
+        assert (
+            result[0] == "german-isp"
+        )  # weak signal (domain match), uses fallback label
 
     def test_mx_tld_match(self):
         result = classify(
@@ -820,7 +850,7 @@ class TestDomesticClassification:
             "",
             domestic=DE_DOMESTIC,
         )
-        assert result[0] == "german-isp"
+        assert result[0] == "german-isp"  # weak signal (TLD match), uses fallback label
 
     def test_no_domestic_config_stays_independent(self):
         result = classify(
@@ -839,15 +869,16 @@ class TestDomesticClassification:
         )
         assert result[0] == "microsoft"
 
-    def test_gateway_with_domestic_backend(self):
-        """Gateway with no hyperscaler SPF + domestic ASN -> domestic."""
+    def test_gateway_with_domestic_asn_classified_as_gateway(self):
+        """Gateway with no hyperscaler SPF + domestic ASN -> gateway (ASN is where
+        the gateway is hosted, not the backend provider)."""
         result = classify(
             ["filter.seppmail.cloud"],
             "v=spf1 ip4:1.2.3.4 -all",
             mx_asns={3303},
             domestic=CH_DOMESTIC,
         )
-        assert result[0] == "swiss-isp"
+        assert result[0] == "gateway"
 
     def test_gateway_with_hyperscaler_spf_not_domestic(self):
         """Gateway with hyperscaler SPF should return hyperscaler, not domestic."""
@@ -947,7 +978,7 @@ class TestClassifySpfAsnIntegration:
             spf_asns=None,
             domestic=DE_DOMESTIC,
         )
-        # Should use .de TLD heuristic -> german-isp
+        # Should use .de TLD heuristic -> german-isp (fallback label for weak signals)
         assert result[0] == "german-isp"
 
     def test_spf_asn_empty_set_no_change(self):
@@ -958,7 +989,7 @@ class TestClassifySpfAsnIntegration:
             spf_asns=set(),
             domestic=DE_DOMESTIC,
         )
-        assert result[0] == "german-isp"
+        assert result[0] == "german-isp"  # weak signal (TLD match), uses fallback label
 
     def test_spf_asn_google_over_independent(self):
         """Independent MX + Google SPF ASN -> google."""

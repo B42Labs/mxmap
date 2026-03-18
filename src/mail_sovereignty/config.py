@@ -11,8 +11,30 @@ def build_domestic_config(settings: Dynaconf) -> DomesticConfig | None:
     if not label:
         return None
 
-    raw_asns = settings.get("domestic_isp_asns", {})
-    asns = {int(k): str(v) for k, v in raw_asns.items()}
+    # Support split ASN sections (public_it_asns + hosted_provider_asns)
+    # or a single domestic_isp_asns section (backward compat for CH)
+    raw_public_it = settings.get("public_it_asns", {})
+    raw_hosted = settings.get("hosted_provider_asns", {})
+
+    asns: dict[int, str] = {}
+    asn_categories: dict[int, str] = {}
+
+    if raw_public_it or raw_hosted:
+        for k, v in raw_public_it.items():
+            asn = int(k)
+            asns[asn] = str(v)
+            asn_categories[asn] = "public-it"
+        for k, v in raw_hosted.items():
+            asn = int(k)
+            if asn in asns:
+                raise ValueError(
+                    f"ASN {asn} appears in both public_it_asns and hosted_provider_asns"
+                )
+            asns[asn] = str(v)
+            asn_categories[asn] = "hosted-provider"
+    else:
+        raw_asns = settings.get("domestic_isp_asns", {})
+        asns = {int(k): str(v) for k, v in raw_asns.items()}
 
     map_cfg = settings.get("map", {})
     domains = list(map_cfg.get("domestic_domains", []))
@@ -21,6 +43,7 @@ def build_domestic_config(settings: Dynaconf) -> DomesticConfig | None:
 
     return DomesticConfig(
         asns=asns,
+        asn_categories=asn_categories,
         domains=domains,
         country_tlds=country_tlds,
         target_country=target_country,

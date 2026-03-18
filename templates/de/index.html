@@ -116,12 +116,30 @@
     font-size: 10px; font-weight: 600; line-height: 1.6;
   }
   .cat-badge.hyperscaler { background: #fde8e8; color: #E83838; }
+  .cat-badge.public-it { background: #e0f2fe; color: #075985; }
   .cat-badge.domestic { background: #e0f5f1; color: #10B898; }
+  .cat-badge.provider { background: #fef3c7; color: #b45309; }
+  .cat-badge.gateway { background: #ede9fe; color: #6d28d9; }
   .cat-badge.foreign { background: #fef3c7; color: #b45309; }
   .cat-badge.unknown { background: #f3f4f6; color: #6b7280; }
   .legend-group { margin-top: 8px; }
   .legend-group:first-child { margin-top: 4px; }
   .legend-group-label { font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 0.3px; font-weight: 600; display: block; margin-bottom: 2px; }
+  .legend-mode {
+    margin: 8px 0 10px 0;
+    padding: 8px 10px;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+  }
+  .legend-mode label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #334155;
+    cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -173,27 +191,127 @@ document.addEventListener('DOMContentLoaded', function () {
 if (!CSS.supports('height', '100dvh')) {
   document.body.style.height = window.innerHeight + 'px';
 }
-const DOMESTIC_ISP_LABEL = '{{ domestic_isp_label }}';
+
 const COLORS = {
-  microsoft:      '#E83838',
-  google:         '#FFAB96',
-  aws:            '#FF7A5C',
-  [DOMESTIC_ISP_LABEL]: '#2EDBA8',
-  'independent':  '#10B898',
-  unknown:        '#BFBFBF'
+  microsoft:          '#E83838',
+  google:             '#FFAB96',
+  aws:                '#FF7A5C',
+  'public-it':        '#4DA3FF',
+  'hosted-provider':  '#F59E0B',
+  gateway:            '#A855F7',
+  'german-isp':       '#2EDBA8',
+  'independent':      '#10B898',
+  unknown:            '#BFBFBF'
 };
 
+const PUBLIC_IT_SPLIT_COLORS = [
+  '#2563EB', '#1D4ED8', '#0284C7', '#0EA5E9', '#0369A1',
+  '#3B82F6', '#60A5FA', '#0891B2', '#4DA3FF', '#1E40AF',
+  '#0F766E', '#14B8A6', '#0D9488', '#22C55E', '#65A30D'
+];
+
 const LABELS = {
-  microsoft:      'Microsoft 365',
-  google:         'Google Workspace',
-  aws:            'Amazon Web Services',
-  [DOMESTIC_ISP_LABEL]: 'Deutscher ISP',
-  'independent':  'Unabhängig',
-  unknown:        'Unbekannt'
+  microsoft:          'Microsoft 365',
+  google:             'Google Workspace',
+  aws:                'Amazon Web Services',
+  'public-it':        'Kommunale IT',
+  'hosted-provider':  'Kommerzieller Hoster',
+  gateway:            'Gateway / Relay',
+  'german-isp':       'Deutscher ISP',
+  'independent':      'Unabhängig',
+  unknown:            'Unbekannt'
 };
 
 const COUNTRY_TLDS = {{ map.country_tlds | tojson }};
 const DOMESTIC_DOMAINS = {{ map.domestic_domains | tojson }};
+const PUBLIC_IT_DOMAINS = {{ map.public_it_domains | tojson }};
+
+let splitPublicIt = false;
+let geojsonLayer = null;
+let currentCounts = null;
+let currentMunicipalities = null;
+let publicItTopKeys = [];
+let publicItColorMap = {};
+let publicItAsnMap = {};
+let detailCounts = {};
+
+function buildPublicItTopKeys(detailCounts) {
+  if (!detailCounts) return [];
+  // Filter to only public-it providers (matched by public_it_asns)
+  const publicItNames = new Set(Object.values(publicItAsnMap));
+  const entries = Object.entries(detailCounts)
+    .filter(function(e) { return publicItNames.has(e[0]); })
+    .sort(function(a, b) { return b[1] - a[1]; });
+  return entries.slice(0, 15).map(function(e) { return e[0]; });
+}
+
+function setupPublicItColors(keys) {
+  publicItColorMap = {};
+  keys.forEach(function(key, index) {
+    publicItColorMap[key] = PUBLIC_IT_SPLIT_COLORS[index] || COLORS['public-it'];
+  });
+}
+
+function getPublicItDetail(m) {
+  if (!m || m.provider !== 'public-it') return null;
+  // Try mx_asns lookup
+  if (m.mx_asns && m.mx_asns.length > 0) {
+    for (var i = 0; i < m.mx_asns.length; i++) {
+      var name = publicItAsnMap[String(m.mx_asns[i])];
+      if (name) return name;
+    }
+  }
+  return null;
+}
+
+function getProviderKey(m) {
+  if (!m) return 'unknown';
+  if (!splitPublicIt || m.provider !== 'public-it') return m.provider || 'unknown';
+  var detail = getPublicItDetail(m);
+  if (detail && publicItTopKeys.indexOf(detail) !== -1) return 'public-it:' + detail;
+  return 'public-it:other';
+}
+
+function getColor(key) {
+  if (key.indexOf('public-it:') === 0) {
+    var detail = key.slice('public-it:'.length);
+    if (detail === 'other') return '#93C5FD';
+    return publicItColorMap[detail] || COLORS['public-it'];
+  }
+  return COLORS[key] || COLORS.unknown;
+}
+
+function getLabel(key) {
+  if (key.indexOf('public-it:') === 0) {
+    var detail = key.slice('public-it:'.length);
+    if (detail === 'other') return 'Kommunale IT / Sonstige';
+    return detail;
+  }
+  return LABELS[key] || key;
+}
+
+function getTextColor(key) {
+  if (key === 'google' || key === 'hosted-provider' || key === 'unknown') return '#333';
+  if (key === 'aws') return '#333';
+  if (key.indexOf('public-it') === 0) return '#fff';
+  return '#fff';
+}
+
+function getEffectiveCounts(counts) {
+  if (!splitPublicIt) return counts;
+  var effective = Object.assign({}, counts);
+  var totalPublicIt = effective['public-it'] || 0;
+  delete effective['public-it'];
+  var assigned = 0;
+  for (var i = 0; i < publicItTopKeys.length; i++) {
+    var key = publicItTopKeys[i];
+    var value = (detailCounts && detailCounts[key]) || 0;
+    effective['public-it:' + key] = value;
+    assigned += value;
+  }
+  effective['public-it:other'] = Math.max(0, totalPublicIt - assigned);
+  return effective;
+}
 
 function escapeHtml(str) {
   const el = document.createElement('span');
@@ -209,48 +327,52 @@ function classifyHost(host) {
     return { name: 'Google', category: 'hyperscaler' };
   if (['amazonaws','amazonses','awsdns'].some(k => h.includes(k)))
     return { name: 'AWS', category: 'hyperscaler' };
+  // Public / municipal IT (derived from config domestic_domains that are public-sector)
+  if (PUBLIC_IT_DOMAINS.some(k => h.includes(k)))
+    return { name: 'Kommunale IT', category: 'public-it' };
+  // Gateways / relays
+  if (['hornetsecurity','antispameurope','hydra.sophos.com','ispgateway.de','secure-mailgate.com','ppe-hosted.com','pphosted.com','trendmicro','seppmail','nospamproxy','as-scan.de','fortimail','fortimailcloud','barracudanetworks','retarus','mimecast','spamexperts'].some(k => h.includes(k)))
+    return { name: 'Gateway', category: 'gateway' };
   if (['mandrillapp.com','mandrill','mcsv.net'].some(k => h.includes(k)))
-    return { name: 'Mailchimp', category: 'foreign' };
+    return { name: 'Mailchimp', category: 'provider' };
   if (h.includes('sendgrid'))
-    return { name: 'SendGrid', category: 'foreign' };
+    return { name: 'SendGrid', category: 'provider' };
   if (h.includes('mailjet'))
-    return { name: 'Mailjet', category: 'foreign' };
+    return { name: 'Mailjet', category: 'provider' };
   if (h.includes('mailgun'))
-    return { name: 'Mailgun', category: 'foreign' };
+    return { name: 'Mailgun', category: 'provider' };
   if (['sendinblue','brevo'].some(k => h.includes(k)))
-    return { name: 'Brevo', category: 'foreign' };
+    return { name: 'Brevo', category: 'provider' };
   if (h.includes('mailchannels'))
-    return { name: 'MailChannels', category: 'foreign' };
+    return { name: 'MailChannels', category: 'provider' };
   if (h.includes('smtp2go'))
-    return { name: 'SMTP2GO', category: 'foreign' };
+    return { name: 'SMTP2GO', category: 'provider' };
   if (h.includes('nl2go'))
-    return { name: 'Newsletter2Go', category: 'foreign' };
+    return { name: 'Newsletter2Go', category: 'provider' };
   if (h.includes('hubspotemail'))
-    return { name: 'HubSpot', category: 'foreign' };
+    return { name: 'HubSpot', category: 'provider' };
   if (h.includes('knowbe4'))
-    return { name: 'KnowBe4', category: 'foreign' };
+    return { name: 'KnowBe4', category: 'provider' };
   if (['sophos','sophosxl'].some(k => h.includes(k)))
-    return { name: 'Sophos', category: 'foreign' };
-  if (h.includes('trendmicro'))
-    return { name: 'Trend Micro', category: 'foreign' };
-  if (['hornetsecurity','hornetdmarc'].some(k => h.includes(k)))
-    return { name: 'Hornetsecurity', category: 'foreign' };
-  if (h.includes('barracudanetworks'))
-    return { name: 'Barracuda', category: 'foreign' };
+    return { name: 'Sophos', category: 'gateway' };
+  if (h.includes('hornetdmarc'))
+    return { name: 'Hornetsecurity', category: 'gateway' };
   if (h.includes('mlsend'))
-    return { name: 'MailerLite', category: 'foreign' };
+    return { name: 'MailerLite', category: 'provider' };
   if (h.includes('createsend'))
-    return { name: 'Campaign Monitor', category: 'foreign' };
+    return { name: 'Campaign Monitor', category: 'provider' };
   if (h.includes('exclaimer'))
-    return { name: 'Exclaimer', category: 'foreign' };
+    return { name: 'Exclaimer', category: 'provider' };
   if (h.includes('turbo-smtp'))
-    return { name: 'turboSMTP', category: 'foreign' };
+    return { name: 'turboSMTP', category: 'provider' };
   if (h.includes('letsignit'))
-    return { name: 'Letsignit', category: 'foreign' };
+    return { name: 'Letsignit', category: 'provider' };
   if (h.includes('codetwo'))
-    return { name: 'CodeTwo', category: 'foreign' };
+    return { name: 'CodeTwo', category: 'provider' };
   if (h.includes('freshservice'))
-    return { name: 'Freshservice', category: 'foreign' };
+    return { name: 'Freshservice', category: 'provider' };
+  if (['ionos','1and1','strato','kasserver.com','all-inkl','hetzner','your-server.de','secureserver.net','emailsrvr.com','t-online.de'].some(k => h.includes(k)))
+    return { name: h.replace(/^_/, '').split('.').slice(-2).join('.'), category: 'provider' };
   if (DOMESTIC_DOMAINS.some(d => h.endsWith(d) || h.endsWith('.' + d)))
     return { name: h.replace(/^_/, '').split('.').slice(-2).join('.'), category: 'domestic' };
   const parts = host.replace(/^_/, '').split('.');
@@ -345,16 +467,70 @@ function legendItemHtml(key, counts) {
     encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#BFBFBF"/><path d="M-1,1 l2,-2 M0,8 l8,-8 M7,9 l2,-2" stroke="#000" stroke-width="1"/></svg>');
   const bg = key === 'unknown'
     ? "background-image:url('" + hatchSvg + "')"
-    : `background:${COLORS[key]}`;
-  return `<i style="${bg}"></i>${LABELS[key]} (${counts[key] || 0})`;
+    : 'background:' + getColor(key);
+  return '<i style="' + bg + '"></i>' + getLabel(key) + ' (' + (counts[key] || 0) + ')';
 }
 
 function legendGroupHtml(label, keys, counts) {
   const heading = label
-    ? `<span class="legend-group-label">${label}</span>`
+    ? '<span class="legend-group-label">' + label + '</span>'
     : '';
-  const items = keys.map(k => legendItemHtml(k, counts)).join('<br>');
-  return `<div class="legend-group">${heading}${items}</div>`;
+  const items = keys.map(function(k) { return legendItemHtml(k, counts); }).join('<br>');
+  return '<div class="legend-group">' + heading + items + '</div>';
+}
+
+function renderLegendContent(div, counts) {
+  var effectiveCounts = getEffectiveCounts(counts);
+  var publicItKeys = splitPublicIt
+    ? publicItTopKeys.map(function(k) { return 'public-it:' + k; }).concat(['public-it:other'])
+    : ['public-it'];
+  var isMobile = window.innerWidth <= 600;
+  div.innerHTML =
+    '<button class="legend-toggle" aria-label="Legende umschalten" aria-expanded="' + (!isMobile) + '">' + (isMobile ? 'Legende \u25B8' : '') + '</button>' +
+    '<div class="legend-content">' +
+    '<strong>E-Mail-Provider</strong>' +
+    '<div class="legend-mode"><label><input type="checkbox" id="split-public-it-toggle"' + (splitPublicIt ? ' checked' : '') + '> Kommunale IT aufschl\u00fcsseln</label></div>' +
+    legendGroupHtml('US-Hyperscaler', ['microsoft', 'aws', 'google'], effectiveCounts) +
+    legendGroupHtml('Kommunale / \u00f6ffentliche IT', publicItKeys, effectiveCounts) +
+    legendGroupHtml('Hosting / Gateway', ['hosted-provider', 'gateway'], effectiveCounts) +
+    legendGroupHtml('Sonstige', ['independent', 'german-isp', 'unknown'].filter(function(k) { return effectiveCounts[k]; }), effectiveCounts) +
+    '</div>';
+}
+
+function bindLegendControls() {
+  var legendDiv = document.querySelector('.legend');
+  if (!legendDiv) return;
+  var toggleButton = legendDiv.querySelector('.legend-toggle');
+  if (toggleButton) toggleButton.addEventListener('click', toggleLegend);
+  var splitToggle = legendDiv.querySelector('#split-public-it-toggle');
+  if (splitToggle) splitToggle.addEventListener('change', handleSplitToggle);
+}
+
+function handleSplitToggle(event) {
+  splitPublicIt = event.target.checked;
+  var legendDiv = document.querySelector('.legend');
+  if (!legendDiv) return;
+  var collapsed = legendDiv.classList.contains('legend-collapsed');
+  renderLegendContent(legendDiv, currentCounts);
+  if (collapsed) legendDiv.classList.add('legend-collapsed');
+  bindLegendControls();
+  refreshLayerStyles();
+}
+
+function refreshLayerStyles() {
+  if (!geojsonLayer || !currentMunicipalities) return;
+  geojsonLayer.eachLayer(function(layer) {
+    var feature = layer.feature;
+    var id = String(feature.id || feature.properties.id || feature.properties.AGS || '');
+    var m = currentMunicipalities[id];
+    var providerKey = getProviderKey(m);
+    layer.setStyle({
+      fillColor: getColor(providerKey),
+      weight: 0.5,
+      color: '#666',
+      fillOpacity: 0.75
+    });
+  });
 }
 
 async function loadData() {
@@ -367,6 +543,14 @@ async function loadData() {
   const topo = topoUrl ? await responses[0].json() : null;
 
   const muni = dnsData.municipalities;
+  currentMunicipalities = muni;
+  currentCounts = dnsData.counts;
+
+  // Set up public-it split data
+  detailCounts = dnsData.detail_counts || {};
+  publicItAsnMap = dnsData.public_it_asns || {};
+  publicItTopKeys = buildPublicItTopKeys(detailCounts);
+  setupPublicItColors(publicItTopKeys);
 
   if (dnsData.generated) {
     const date = new Date(dnsData.generated);
@@ -379,18 +563,12 @@ async function loadData() {
   legend.onAdd = function () {
     const div = L.DomUtil.create('div', 'legend');
     if (isMobile) div.classList.add('legend-collapsed');
-    div.innerHTML =
-      '<button class="legend-toggle" aria-label="Legende umschalten" aria-expanded="' + (!isMobile) + '">' + (isMobile ? 'Legende \u25B8' : '') + '</button>' +
-      '<div class="legend-content">' +
-      '<strong>E-Mail-Provider</strong>' +
-      legendGroupHtml('US-basiert', ['microsoft', 'aws', 'google'], dnsData.counts) +
-      legendGroupHtml('Inländisch', ['independent', DOMESTIC_ISP_LABEL], dnsData.counts) +
-      '</div>';
+    renderLegendContent(div, dnsData.counts);
     L.DomEvent.disableClickPropagation(div);
     return div;
   };
   legend.addTo(map);
-  document.querySelector('.legend-toggle').addEventListener('click', toggleLegend);
+  bindLegendControls();
 
   if (topo) {
     if (topo.objects.lakes) {
@@ -404,13 +582,13 @@ async function loadData() {
     const geojsonKey = topo.objects.municipalities ? 'municipalities' : Object.keys(topo.objects)[0];
     const geojson = topojson.feature(topo, topo.objects[geojsonKey]);
 
-    L.geoJSON(geojson, {
+    geojsonLayer = L.geoJSON(geojson, {
       style: function (feature) {
         const id = String(feature.id || feature.properties.id || feature.properties.AGS || '');
         const m = muni[id];
-        const provider = m ? m.provider : 'unknown';
+        const providerKey = getProviderKey(m);
         return {
-          fillColor: COLORS[provider] || COLORS.unknown,
+          fillColor: getColor(providerKey),
           weight: 0.5,
           color: '#666',
           fillOpacity: 0.75
@@ -420,33 +598,34 @@ async function loadData() {
         const id = String(feature.id || feature.properties.id || feature.properties.AGS || '');
         const m = muni[id];
         if (!m) {
-          layer.bindPopup(`<div class="info-popup"><strong>AGS ${id}</strong><br>Keine Daten</div>`);
+          layer.bindPopup('<div class="info-popup"><strong>AGS ' + id + '</strong><br>Keine Daten</div>');
           return;
         }
-        const color = COLORS[m.provider] || COLORS.unknown;
-        const textColor = ['aws', 'google', DOMESTIC_ISP_LABEL, 'unknown'].includes(m.provider) ? '#333' : '#fff';
-        const label = LABELS[m.provider] || m.provider;
+        const providerKey = getProviderKey(m);
+        const color = getColor(providerKey);
+        const textColor = getTextColor(providerKey);
+        const label = getLabel(providerKey);
 
         let mxSection = '';
         if (m.mx && m.mx.length > 0) {
-          mxSection = `<div class="popup-section"><div class="popup-section-title">Eingehende Mail verarbeitet von <span class="popup-section-hint">(MX)</span></div>${renderTable(m.mx)}</div>`;
+          mxSection = '<div class="popup-section"><div class="popup-section-title">Eingehende Mail verarbeitet von <span class="popup-section-hint">(MX)</span></div>' + renderTable(m.mx) + '</div>';
         }
 
         const spfDelegations = parseSpfDelegations(m.spf);
         let spfSection = '';
         if (spfDelegations.length > 0) {
-          spfSection = `<div class="popup-section"><div class="popup-section-title">Autorisiert zum Senden <span class="popup-section-hint">(SPF)</span></div>${renderTable(spfDelegations)}</div>`;
+          spfSection = '<div class="popup-section"><div class="popup-section-title">Autorisiert zum Senden <span class="popup-section-hint">(SPF)</span></div>' + renderTable(spfDelegations) + '</div>';
         }
 
         const eName = escapeHtml(m.name);
         const eDomain = escapeHtml(m.domain || 'unbekannt');
         const eLabel = escapeHtml(label);
         layer.bindPopup(
-          `<div class="info-popup">` +
-          `<strong>${eName}</strong><br>` +
-          `${eDomain} <span class="provider-badge" style="background:${color};color:${textColor}">${eLabel}</span>` +
+          '<div class="info-popup">' +
+          '<strong>' + eName + '</strong><br>' +
+          eDomain + ' <span class="provider-badge" style="background:' + color + ';color:' + textColor + '">' + eLabel + '</span>' +
           mxSection + spfSection +
-          `</div>`,
+          '</div>',
           { maxWidth: 450 }
         );
         layer.on('mouseover', function () { this.setStyle({ weight: 2, color: '#333' }); });

@@ -16,6 +16,8 @@ def build(country: str, config) -> None:
         map_cfg["domestic_domains"] = list(map_cfg["domestic_domains"])
     if "country_tlds" in map_cfg:
         map_cfg["country_tlds"] = list(map_cfg["country_tlds"])
+    if "public_it_domains" in map_cfg:
+        map_cfg["public_it_domains"] = list(map_cfg["public_it_domains"])
 
     site_cfg = dict(config.site)
 

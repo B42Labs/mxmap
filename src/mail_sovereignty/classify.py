@@ -16,6 +16,9 @@ from mail_sovereignty.constants import (
 @dataclass(frozen=True)
 class DomesticConfig:
     asns: dict[int, str]  # curated ASN -> ISP name
+    asn_categories: dict[
+        int, str
+    ]  # ASN -> category label ("public-it", "hosted-provider")
     domains: list[str]  # known domestic domain suffixes
     country_tlds: list[str]  # e.g. [".de"]
     target_country: str  # ISO code for GeoIP, e.g. "DE"
@@ -105,46 +108,62 @@ def _check_domestic(
     mx_ptrs: dict[str, str] | None,
     mx_geoip_countries: set[str] | None,
     domestic: DomesticConfig,
-) -> bool:
-    """Check if MX setup points to a domestic ISP."""
+) -> tuple[str, str] | None:
+    """Check if MX setup points to a domestic ISP.
+
+    Returns (category_label, isp_name) or None.
+    category_label is from asn_categories if available, otherwise domestic.label.
+    isp_name is the ISP name from the ASN mapping, or empty for weak signals.
+    """
     asns = mx_asns or set()
     all_hyperscaler = bool(asns) and asns.issubset(HYPERSCALER_ASNS)
 
     # Signal 1: ASN in curated domestic list (strongest — always trust)
-    if asns & domestic.asns.keys():
-        return True
+    # When multiple ASNs match, prefer public-it over hosted-provider.
+    matched_asns = asns & domestic.asns.keys()
+    if matched_asns:
+        best_asn = min(
+            matched_asns,
+            key=lambda a: (
+                0 if domestic.asn_categories.get(a) == "public-it" else 1,
+                a,
+            ),
+        )
+        isp_name = domestic.asns[best_asn]
+        category = domestic.asn_categories.get(best_asn, domestic.label)
+        return (category, isp_name)
 
     # Signal 2: GeoIP matches target country AND ASNs not all hyperscaler
     if mx_geoip_countries and domestic.target_country in mx_geoip_countries:
         if not all_hyperscaler:
-            return True
+            return (domestic.label, "")
 
     # Signals 3-5 are weaker heuristics; skip if all ASNs are hyperscaler
     # (custom domain on Azure/GCP/AWS should not be classified as domestic ISP)
     if all_hyperscaler:
-        return False
+        return None
 
     # Signal 3: PTR hostname matches domestic domains or country TLD
     if mx_ptrs:
         for ptr in mx_ptrs.values():
             ptr_lower = ptr.lower()
             if any(ptr_lower.endswith(d) for d in domestic.domains):
-                return True
+                return (domestic.label, "")
             if any(ptr_lower.endswith(tld) for tld in domestic.country_tlds):
-                return True
+                return (domestic.label, "")
 
     # Signal 4: MX hostname matches domestic domains
     mx_blob = " ".join(mx_records).lower()
     if any(d in mx_blob for d in domestic.domains):
-        return True
+        return (domestic.label, "")
 
     # Signal 5: MX hostname ends with country TLD
     for mx in mx_records:
         mx_lower = mx.lower()
         if any(mx_lower.endswith(tld) for tld in domestic.country_tlds):
-            return True
+            return (domestic.label, "")
 
-    return False
+    return None
 
 
 def _check_spf_all(spf_record: str | None, resolved_spf: str | None) -> str | None:
@@ -251,7 +270,8 @@ def classify(
                 txt_provider,
                 f"MX is {gateway} gateway; TXT verification proves {txt_provider}",
             )
-        # Gateway relays to independent, fall through
+        # Gateway with unknown backend
+        return ("gateway", f"MX is {gateway} gateway; backend unknown")
 
     if mx_records:
         # Check autodiscover for hyperscaler backend behind independent MX
@@ -266,10 +286,16 @@ def classify(
         spf_asn_provider = _classify_from_spf_asns(spf_asns)
         if spf_asn_provider:
             return (spf_asn_provider, f"SPF ip4 ASN matches {spf_asn_provider}")
-        if domestic and _check_domestic(
-            mx_records, mx_asns, mx_ptrs, mx_geoip_countries, domestic
-        ):
-            return (domestic.label, "domestic ISP signals")
+        domestic_result = (
+            _check_domestic(mx_records, mx_asns, mx_ptrs, mx_geoip_countries, domestic)
+            if domestic
+            else None
+        )
+        if domestic_result:
+            category, isp_name = domestic_result
+            if isp_name:
+                return (category, f"{isp_name} (ASN match)")
+            return (category, "domestic ISP signals")
         return ("independent", "MX is self-hosted")
 
     spf_provider = _check_spf_all(spf_record, resolved_spf)

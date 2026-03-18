@@ -365,30 +365,67 @@ async def run(
                 counts[r["provider"]] = counts.get(r["provider"], 0) + 1
             print(f"  [{done:4d}/{total}]  {_format_counts(counts)}")
 
-    counts = {}
+    counts: dict[str, int] = {}
+    detail_counts: dict[str, int] = {}
     for r in results.values():
         counts[r["provider"]] = counts.get(r["provider"], 0) + 1
+        # Extract ISP name from reason for detail_counts
+        reason = r.get("reason", "")
+        if reason.endswith("(ASN match)"):
+            isp_name = reason.rsplit(" (ASN match)", 1)[0]
+            detail_counts[isp_name] = detail_counts.get(isp_name, 0) + 1
 
     print(f"\n{'=' * 50}")
     print(f"RESULTS: {len(results)} municipalities scanned")
-    known = {"microsoft", "google", "aws", "independent", "unknown"}
-    for provider in ["microsoft", "google", "aws", "independent", "unknown"]:
+    known = {
+        "microsoft",
+        "google",
+        "aws",
+        "independent",
+        "unknown",
+        "gateway",
+        "public-it",
+        "hosted-provider",
+        "german-isp",
+    }
+    for provider in [
+        "microsoft",
+        "google",
+        "aws",
+        "public-it",
+        "hosted-provider",
+        "gateway",
+        "independent",
+        "unknown",
+    ]:
         if counts.get(provider, 0):
-            print(f"  {provider:<15}: {counts[provider]:>5}")
+            print(f"  {provider:<20}: {counts[provider]:>5}")
     for provider in sorted(counts):
         if provider not in known and counts[provider]:
-            print(f"  {provider:<15}: {counts[provider]:>5}")
+            print(f"  {provider:<20}: {counts[provider]:>5}")
     print(f"{'=' * 50}")
 
     sorted_counts = dict(sorted(counts.items()))
     sorted_munis = dict(sorted(results.items(), key=lambda kv: int(kv[0])))
 
-    output = {
+    # Build public-it ASN mapping for frontend split toggle
+    domestic = country_config.domestic_config if country_config else None
+    public_it_asns: dict[str, str] = {}
+    if domestic and domestic.asn_categories:
+        for asn, cat in domestic.asn_categories.items():
+            if cat == "public-it":
+                public_it_asns[str(asn)] = domestic.asns.get(asn, "")
+
+    output: dict[str, Any] = {
         "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "total": len(results),
         "counts": sorted_counts,
         "municipalities": sorted_munis,
     }
+    if detail_counts:
+        output["detail_counts"] = dict(sorted(detail_counts.items()))
+    if public_it_asns:
+        output["public_it_asns"] = public_it_asns
 
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=None, separators=(",", ":"))

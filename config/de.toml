@@ -30,45 +30,20 @@ manual_override_ids = []
 [manual_overrides]
 # To be populated as needed
 
-[domestic_isp_asns]
-3320 = "Deutsche Telekom"
-6724 = "Strato"
-8560 = "IONOS"
-24940 = "Hetzner"
-3209 = "Vodafone"
-8422 = "NetCologne"
-29551 = "all-inkl"
-34788 = "netcup"
-47846 = "KAMP"
-34011 = "Host Europe"
-20773 = "Host Europe"
-61157 = "Profihost"
-680 = "DFN"
-31334 = "Vodafone Kabel Deutschland"
-16276 = "OVH"
-15817 = "Mittwald CM Service"
-34240 = "manitu"
-21499 = "Host Europe"
-33846 = "Dataport"
+# Public / municipal IT service providers
+[public_it_asns]
 553 = "BelWue"
+680 = "DFN"
 6687 = "communelink"
-8767 = "M-net"
-8881 = "Versatel/1&1"
+8319 = "KGRZ Fulda"
+8351 = "SIS Schwerin"
 9063 = "Saarland IT"
-9145 = "EWE TEL"
 9197 = "ekom21"
 12693 = "DIKOM Brandenburg"
-12897 = "ENTEGA"
 13045 = "KDO Niedersachsen"
-13101 = "TNG Stadtnetz"
-15598 = "QSC/q.beyond"
-16024 = "GELSEN-NET"
-16097 = "TELEPORT"
 20810 = "ekom21"
 21473 = "Pfalzkom"
-24961 = "myLoc/nol-IS"
-29014 = "IN-Ulm"
-30238 = "Trier-net"
+33846 = "Dataport"
 34928 = "regio iT"
 42652 = "eCube/Saarland IT"
 48049 = "ITK Rheinland"
@@ -79,9 +54,38 @@ manual_override_ids = []
 201318 = "Suedwestfalen IT"
 202577 = "KDVZ Frechen"
 210849 = "ITK Rheinland"
-8319 = "KGRZ Fulda"
-8351 = "SIS Schwerin"
+
+# Commercial hosting providers
+[hosted_provider_asns]
+3209 = "Vodafone"
+3320 = "Deutsche Telekom"
+6724 = "Strato"
+8422 = "NetCologne"
+8560 = "IONOS"
+8767 = "M-net"
 8820 = "TAL.de"
+8881 = "Versatel/1&1"
+9145 = "EWE TEL"
+12897 = "ENTEGA"
+13101 = "TNG Stadtnetz"
+15598 = "QSC/q.beyond"
+15817 = "Mittwald CM Service"
+16024 = "GELSEN-NET"
+16097 = "TELEPORT"
+16276 = "OVH"
+20773 = "Host Europe"
+21499 = "Host Europe"
+24940 = "Hetzner"
+24961 = "myLoc/nol-IS"
+29014 = "IN-Ulm"
+29551 = "all-inkl"
+30238 = "Trier-net"
+31334 = "Vodafone Kabel Deutschland"
+34011 = "Host Europe"
+34240 = "manitu"
+34788 = "netcup"
+47846 = "KAMP"
+61157 = "Profihost"
 
 [map]
 center_lat = 51.1
@@ -98,6 +102,17 @@ domestic_domains = [
     "df.eu", "manitu.de", "hostsharing.net", "jpberlin.de",
     "profihost.com", "mittwald.de", "netcup.de",
     "belwue.de", "ekom21.de", "regioit.de", "komm-one.de",
+    "kvnbw.de", "bayern.de", "verwaltungsportal.de", "kgrz-ks.de",
+    "pzd-svn.de", "landsh.de", "kdo.de", "kommunale.it",
+    "kdvz-frechen.de", "krz.de", "rlp.de", "nolis.de",
+    "dataport.de", "sivit.de", "dikom-bb.de",
+]
+public_it_domains = [
+    "belwue.de", "ekom21.de", "regioit.de", "komm-one.de",
+    "kvnbw.de", "bayern.de", "verwaltungsportal.de", "kgrz-ks.de",
+    "pzd-svn.de", "landsh.de", "kdo.de", "kommunale.it",
+    "kdvz-frechen.de", "krz.de", "rlp.de", "nolis.de",
+    "dataport.de", "sivit.de", "dikom-bb.de",
 ]
 
 [site]
