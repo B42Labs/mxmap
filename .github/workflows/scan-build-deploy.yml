@@ -1,4 +1,4 @@
-name: Nightly data update
+name: Scan, build & deploy
 
 on:
 #  schedule:
