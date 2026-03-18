@@ -58,9 +58,15 @@ GATEWAY_KEYWORDS = {
     "trendmicro": ["tmes.trendmicro.eu", "tmes.trendmicro.com"],
     "hornetsecurity": ["hornetsecurity.com", "hornetsecurity.ch"],
     "abxsec": ["abxsec.com"],
-    "proofpoint": ["ppe-hosted.com"],
+    "proofpoint": ["ppe-hosted.com", "pphosted.com"],
     "sophos": ["hydra.sophos.com"],
     "spamvor": ["spamvor.com"],
+    "fortimail": ["fortimail.", "fortimailcloud.com"],
+    "nospamproxy": ["nospamproxy.de", "as-scan.de"],
+    "antispameurope": ["antispameurope.com"],
+    "retarus": ["retarus.com"],
+    "mimecast": ["mimecast.com"],
+    "spamexperts": ["spamexperts.eu", "spamexperts.net", "spamexperts.com"],
 }
 
 HYPERSCALER_ASNS = frozenset(

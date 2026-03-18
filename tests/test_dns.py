@@ -11,10 +11,12 @@ from mail_sovereignty.dns import (
     lookup_asn_cymru,
     lookup_autodiscover,
     lookup_cname_chain,
+    lookup_dkim,
     lookup_mx,
     lookup_ptr,
     lookup_spf,
     lookup_srv,
+    lookup_txt,
     make_resolvers,
     resolve_asns_from_ips,
     resolve_mx_asns,
@@ -478,6 +480,170 @@ class TestLookupCnameChain:
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 result = await lookup_cname_chain("mail.example.ch")
         assert result == ["mail.protection.outlook.com"]
+
+
+class TestLookupDkim:
+    async def test_microsoft_dkim(self):
+        """selector1._domainkey.example.de → selector1-example-de._domainkey.example.onmicrosoft.com"""
+
+        async def _cname(hostname, max_hops=10):
+            if hostname == "selector1._domainkey.example.de":
+                return ["selector1-example-de._domainkey.example.onmicrosoft.com"]
+            return []
+
+        with patch(
+            "mail_sovereignty.dns.lookup_cname_chain",
+            new_callable=AsyncMock,
+            side_effect=_cname,
+        ):
+            result = await lookup_dkim("example.de")
+        assert result == {
+            "selector1": "selector1-example-de._domainkey.example.onmicrosoft.com"
+        }
+
+    async def test_google_dkim(self):
+        """google._domainkey.example.de → google._domainkey.example.google.com"""
+
+        async def _cname(hostname, max_hops=10):
+            if hostname == "google._domainkey.example.de":
+                return ["google._domainkey.example.google.com"]
+            return []
+
+        with patch(
+            "mail_sovereignty.dns.lookup_cname_chain",
+            new_callable=AsyncMock,
+            side_effect=_cname,
+        ):
+            result = await lookup_dkim("example.de")
+        assert result == {"google": "google._domainkey.example.google.com"}
+
+    async def test_no_dkim(self):
+        """All selectors return empty chain → {}"""
+        with patch(
+            "mail_sovereignty.dns.lookup_cname_chain",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            result = await lookup_dkim("example.de")
+        assert result == {}
+
+    async def test_multiple_selectors(self):
+        """selector1 and selector2 both return targets."""
+
+        async def _cname(hostname, max_hops=10):
+            if hostname == "selector1._domainkey.example.de":
+                return ["selector1-example-de._domainkey.example.onmicrosoft.com"]
+            if hostname == "selector2._domainkey.example.de":
+                return ["selector2-example-de._domainkey.example.onmicrosoft.com"]
+            return []
+
+        with patch(
+            "mail_sovereignty.dns.lookup_cname_chain",
+            new_callable=AsyncMock,
+            side_effect=_cname,
+        ):
+            result = await lookup_dkim("example.de")
+        assert result == {
+            "selector1": "selector1-example-de._domainkey.example.onmicrosoft.com",
+            "selector2": "selector2-example-de._domainkey.example.onmicrosoft.com",
+        }
+
+
+class TestLookupTxt:
+    async def test_spf_and_verification(self):
+        """TXT records contain both SPF and ms= verification token."""
+        mock_rr_spf = MagicMock()
+        mock_rr_spf.strings = [b"v=spf1 include:spf.protection.outlook.com -all"]
+        mock_rr_ms = MagicMock()
+        mock_rr_ms.strings = [b"ms=ms12345678"]
+        mock_answer = [mock_rr_spf, mock_rr_ms]
+
+        mock_resolver = AsyncMock()
+        mock_resolver.resolve = AsyncMock(return_value=mock_answer)
+
+        with patch("mail_sovereignty.dns.get_resolvers", return_value=[mock_resolver]):
+            spf, verifications = await lookup_txt("example.de")
+        assert spf == "v=spf1 include:spf.protection.outlook.com -all"
+        assert verifications == {"microsoft": "ms12345678"}
+
+    async def test_spf_only(self):
+        """Only SPF record → ("v=spf1 ...", {})"""
+        mock_rr = MagicMock()
+        mock_rr.strings = [b"v=spf1 include:example.com -all"]
+        mock_answer = [mock_rr]
+
+        mock_resolver = AsyncMock()
+        mock_resolver.resolve = AsyncMock(return_value=mock_answer)
+
+        with patch("mail_sovereignty.dns.get_resolvers", return_value=[mock_resolver]):
+            spf, verifications = await lookup_txt("example.de")
+        assert spf == "v=spf1 include:example.com -all"
+        assert verifications == {}
+
+    async def test_verification_only(self):
+        """Only google-site-verification= → ("", {"google": "..."})"""
+        mock_rr = MagicMock()
+        mock_rr.strings = [b"google-site-verification=abcdef123456"]
+        mock_answer = [mock_rr]
+
+        mock_resolver = AsyncMock()
+        mock_resolver.resolve = AsyncMock(return_value=mock_answer)
+
+        with patch("mail_sovereignty.dns.get_resolvers", return_value=[mock_resolver]):
+            spf, verifications = await lookup_txt("example.de")
+        assert spf == ""
+        assert verifications == {"google": "abcdef123456"}
+
+    async def test_nxdomain(self):
+        """NXDOMAIN returns ("", {})."""
+        mock_resolver = AsyncMock()
+        mock_resolver.resolve = AsyncMock(side_effect=dns.resolver.NXDOMAIN())
+
+        mock_resolver2 = AsyncMock()
+
+        with patch(
+            "mail_sovereignty.dns.get_resolvers",
+            return_value=[mock_resolver, mock_resolver2],
+        ):
+            spf, verifications = await lookup_txt("nonexistent.de")
+        assert spf == ""
+        assert verifications == {}
+        mock_resolver2.resolve.assert_not_called()
+
+    async def test_timeout_retries(self):
+        """First resolver fails with timeout, second succeeds."""
+        mock_rr = MagicMock()
+        mock_rr.strings = [b"v=spf1 include:example.com -all"]
+        mock_answer = [mock_rr]
+
+        mock_resolver1 = AsyncMock()
+        mock_resolver1.resolve = AsyncMock(side_effect=dns.exception.Timeout())
+
+        mock_resolver2 = AsyncMock()
+        mock_resolver2.resolve = AsyncMock(return_value=mock_answer)
+
+        with patch(
+            "mail_sovereignty.dns.get_resolvers",
+            return_value=[mock_resolver1, mock_resolver2],
+        ):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                spf, verifications = await lookup_txt("example.de")
+        assert spf == "v=spf1 include:example.com -all"
+        assert verifications == {}
+
+    async def test_all_fail(self):
+        """All resolvers fail → ("", {})."""
+        resolvers = []
+        for _ in range(3):
+            r = AsyncMock()
+            r.resolve = AsyncMock(side_effect=dns.exception.Timeout())
+            resolvers.append(r)
+
+        with patch("mail_sovereignty.dns.get_resolvers", return_value=resolvers):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                spf, verifications = await lookup_txt("example.de")
+        assert spf == ""
+        assert verifications == {}
 
 
 class TestResolveMxCnames:

@@ -13,8 +13,9 @@ from mail_sovereignty.classify import classify, detect_gateway
 from mail_sovereignty.constants import SPARQL_URL
 from mail_sovereignty.dns import (
     lookup_autodiscover,
+    lookup_dkim,
     lookup_mx,
-    lookup_spf,
+    lookup_txt,
     resolve_asns_from_ips,
     resolve_mx_cnames,
     resolve_mx_ips,
@@ -223,10 +224,11 @@ async def scan_municipality(
         domain = url_to_domain(m.get("website", ""))
         mx, spf = [], ""
 
+        txt_verifications: dict[str, str] = {}
         if domain:
             mx = await lookup_mx(domain)
             if mx:
-                spf = await lookup_spf(domain)
+                spf, txt_verifications = await lookup_txt(domain)
 
         if not mx:
             tld = country_config.tld if country_config else ".ch"
@@ -237,7 +239,7 @@ async def scan_municipality(
                 mx = await lookup_mx(guess)
                 if mx:
                     domain = guess
-                    spf = await lookup_spf(guess)
+                    spf, txt_verifications = await lookup_txt(guess)
                     break
 
         spf_resolved = await resolve_spf_includes(spf) if spf else ""
@@ -247,10 +249,11 @@ async def scan_municipality(
         mx_ptrs = await resolve_mx_ptrs(mx_ips) if mx_ips else {}
         mx_geoip_countries = geoip.countries_for_mx_ips(mx_ips) if mx_ips else set()
         autodiscover = await lookup_autodiscover(domain) if domain else {}
+        dkim = await lookup_dkim(domain) if domain else {}
         spf_asns = await resolve_spf_asns(spf_resolved or spf) if spf else set()
 
         domestic = country_config.domestic_config if country_config else None
-        provider = classify(
+        provider, reason = classify(
             mx,
             spf,
             mx_cnames=mx_cnames,
@@ -261,6 +264,8 @@ async def scan_municipality(
             mx_geoip_countries=mx_geoip_countries or None,
             spf_asns=spf_asns or None,
             domestic=domestic,
+            dkim=dkim or None,
+            txt_verifications=txt_verifications or None,
         )
         gateway = detect_gateway(mx) if mx else None
 
@@ -272,6 +277,7 @@ async def scan_municipality(
             "mx": mx,
             "spf": spf,
             "provider": provider,
+            "reason": reason,
         }
         if spf_resolved and spf_resolved != spf:
             entry["spf_resolved"] = spf_resolved
@@ -289,6 +295,10 @@ async def scan_municipality(
             entry["spf_asns"] = sorted(spf_asns)
         if autodiscover:
             entry["autodiscover"] = autodiscover
+        if dkim:
+            entry["dkim"] = dkim
+        if txt_verifications:
+            entry["txt_verifications"] = txt_verifications
         return entry
 
 

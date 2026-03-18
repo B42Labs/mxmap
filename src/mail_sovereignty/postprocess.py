@@ -8,6 +8,7 @@ import httpx
 
 from mail_sovereignty import geoip
 from mail_sovereignty.classify import (
+    DomesticConfig,
     classify,
     classify_from_smtp_banner,
     detect_gateway,
@@ -19,8 +20,9 @@ from mail_sovereignty.constants import (
 )
 from mail_sovereignty.dns import (
     lookup_autodiscover,
+    lookup_dkim,
     lookup_mx,
-    lookup_spf,
+    lookup_txt,
     resolve_asns_from_ips,
     resolve_mx_cnames,
     resolve_mx_ips,
@@ -136,6 +138,66 @@ async def scrape_email_domains(
     return all_domains
 
 
+async def _enrich_domain(
+    domain: str,
+    mx: list[str],
+    domestic: DomesticConfig | None,
+) -> dict[str, Any]:
+    """Perform DNS enrichment and classification for a domain with known MX records."""
+    spf, txt_verifications = await lookup_txt(domain)
+    spf_resolved = await resolve_spf_includes(spf) if spf else ""
+    mx_cnames = await resolve_mx_cnames(mx) if mx else {}
+    mx_ips = await resolve_mx_ips(mx) if mx else {}
+    mx_asns = await resolve_asns_from_ips(mx_ips) if mx_ips else set()
+    mx_ptrs = await resolve_mx_ptrs(mx_ips) if mx_ips else {}
+    mx_geoip_countries = geoip.countries_for_mx_ips(mx_ips) if mx_ips else set()
+    autodiscover = await lookup_autodiscover(domain)
+    dkim = await lookup_dkim(domain)
+    spf_asns = await resolve_spf_asns(spf_resolved or spf) if spf else set()
+    provider, reason = classify(
+        mx,
+        spf,
+        mx_cnames=mx_cnames,
+        mx_asns=mx_asns or None,
+        resolved_spf=spf_resolved or None,
+        autodiscover=autodiscover or None,
+        mx_ptrs=mx_ptrs or None,
+        mx_geoip_countries=mx_geoip_countries or None,
+        spf_asns=spf_asns or None,
+        domestic=domestic,
+        dkim=dkim or None,
+        txt_verifications=txt_verifications or None,
+    )
+    gateway = detect_gateway(mx) if mx else None
+    result: dict[str, Any] = {
+        "mx": mx,
+        "spf": spf,
+        "provider": provider,
+        "reason": reason,
+    }
+    if spf_resolved and spf_resolved != spf:
+        result["spf_resolved"] = spf_resolved
+    if gateway:
+        result["gateway"] = gateway
+    if mx_cnames:
+        result["mx_cnames"] = mx_cnames
+    if mx_asns:
+        result["mx_asns"] = sorted(mx_asns)
+    if mx_ptrs:
+        result["mx_ptrs"] = mx_ptrs
+    if mx_geoip_countries:
+        result["mx_geoip_countries"] = sorted(mx_geoip_countries)
+    if spf_asns:
+        result["spf_asns"] = sorted(spf_asns)
+    if autodiscover:
+        result["autodiscover"] = autodiscover
+    if dkim:
+        result["dkim"] = dkim
+    if txt_verifications:
+        result["txt_verifications"] = txt_verifications
+    return result
+
+
 async def process_unknown(
     client: httpx.AsyncClient,
     semaphore: asyncio.Semaphore,
@@ -167,54 +229,13 @@ async def process_unknown(
         for email_domain in sorted(email_domains):
             mx = await lookup_mx(email_domain)
             if mx:
-                spf = await lookup_spf(email_domain)
-                spf_resolved = await resolve_spf_includes(spf) if spf else ""
-                mx_cnames = await resolve_mx_cnames(mx)
-                mx_ips = await resolve_mx_ips(mx)
-                mx_asns = await resolve_asns_from_ips(mx_ips) if mx_ips else set()
-                mx_ptrs = await resolve_mx_ptrs(mx_ips) if mx_ips else {}
-                mx_geoip_countries = (
-                    geoip.countries_for_mx_ips(mx_ips) if mx_ips else set()
-                )
-                autodiscover = await lookup_autodiscover(email_domain)
-                spf_asns = await resolve_spf_asns(spf_resolved or spf) if spf else set()
-                provider = classify(
-                    mx,
-                    spf,
-                    mx_cnames=mx_cnames,
-                    mx_asns=mx_asns or None,
-                    resolved_spf=spf_resolved or None,
-                    autodiscover=autodiscover or None,
-                    mx_ptrs=mx_ptrs or None,
-                    mx_geoip_countries=mx_geoip_countries or None,
-                    spf_asns=spf_asns or None,
-                    domestic=domestic,
-                )
-                gateway = detect_gateway(mx)
+                enrichment = await _enrich_domain(email_domain, mx, domestic)
                 print(
                     f"  RESOLVED {bfs:>5} {name:<30} "
-                    f"email_domain={email_domain} -> {provider}"
+                    f"email_domain={email_domain} -> {enrichment['provider']}"
                 )
-                m["mx"] = mx
-                m["spf"] = spf
-                m["provider"] = provider
+                m.update(enrichment)
                 m["domain"] = email_domain
-                if spf_resolved and spf_resolved != spf:
-                    m["spf_resolved"] = spf_resolved
-                if gateway:
-                    m["gateway"] = gateway
-                if mx_cnames:
-                    m["mx_cnames"] = mx_cnames
-                if mx_asns:
-                    m["mx_asns"] = sorted(mx_asns)
-                if mx_ptrs:
-                    m["mx_ptrs"] = mx_ptrs
-                if mx_geoip_countries:
-                    m["mx_geoip_countries"] = sorted(mx_geoip_countries)
-                if spf_asns:
-                    m["spf_asns"] = sorted(spf_asns)
-                if autodiscover:
-                    m["autodiscover"] = autodiscover
                 return m
 
         print(
@@ -294,78 +315,15 @@ async def run(data_path: Path, country_config=None) -> None:
 
         async def _relookup(bfs, domain):
             mx = await lookup_mx(domain)
-            spf = await lookup_spf(domain)
-            spf_resolved = await resolve_spf_includes(spf) if spf else ""
-            mx_cnames = await resolve_mx_cnames(mx) if mx else {}
-            mx_ips = await resolve_mx_ips(mx) if mx else {}
-            mx_asns = await resolve_asns_from_ips(mx_ips) if mx_ips else set()
-            mx_ptrs = await resolve_mx_ptrs(mx_ips) if mx_ips else {}
-            mx_geoip_countries = geoip.countries_for_mx_ips(mx_ips) if mx_ips else set()
-            autodiscover = await lookup_autodiscover(domain)
-            spf_asns = await resolve_spf_asns(spf_resolved or spf) if spf else set()
-            provider = classify(
-                mx,
-                spf,
-                mx_cnames=mx_cnames,
-                mx_asns=mx_asns or None,
-                resolved_spf=spf_resolved or None,
-                autodiscover=autodiscover or None,
-                mx_ptrs=mx_ptrs or None,
-                mx_geoip_countries=mx_geoip_countries or None,
-                spf_asns=spf_asns or None,
-                domestic=domestic,
-            )
-            gateway = detect_gateway(mx) if mx else None
-            return (
-                bfs,
-                mx,
-                spf,
-                spf_resolved,
-                mx_cnames,
-                mx_asns,
-                mx_ptrs,
-                mx_geoip_countries,
-                provider,
-                gateway,
-                autodiscover,
-                spf_asns,
-            )
+            enrichment = await _enrich_domain(domain, mx, domestic)
+            return bfs, enrichment
 
         results = await asyncio.gather(*[_relookup(b, d) for b, d in dns_relookup])
-        for (
-            bfs,
-            mx,
-            spf,
-            spf_resolved,
-            mx_cnames,
-            mx_asns,
-            mx_ptrs,
-            mx_geoip_countries,
-            provider,
-            gateway,
-            autodiscover,
-            spf_asns,
-        ) in results:
-            muni[bfs]["mx"] = mx
-            muni[bfs]["spf"] = spf
-            muni[bfs]["provider"] = provider
-            if spf_resolved and spf_resolved != spf:
-                muni[bfs]["spf_resolved"] = spf_resolved
-            if gateway:
-                muni[bfs]["gateway"] = gateway
-            if mx_cnames:
-                muni[bfs]["mx_cnames"] = mx_cnames
-            if mx_asns:
-                muni[bfs]["mx_asns"] = sorted(mx_asns)
-            if mx_ptrs:
-                muni[bfs]["mx_ptrs"] = mx_ptrs
-            if mx_geoip_countries:
-                muni[bfs]["mx_geoip_countries"] = sorted(mx_geoip_countries)
-            if spf_asns:
-                muni[bfs]["spf_asns"] = sorted(spf_asns)
-            if autodiscover:
-                muni[bfs]["autodiscover"] = autodiscover
-            print(f"  {bfs:>5} {muni[bfs]['name']:<30} -> {provider} (DNS re-lookup)")
+        for bfs, enrichment in results:
+            muni[bfs].update(enrichment)
+            print(
+                f"  {bfs:>5} {muni[bfs]['name']:<30} -> {enrichment['provider']} (DNS re-lookup)"
+            )
 
     # Step 2: Retry DNS for unknowns that have a domain
     dns_retry_candidates = [
@@ -376,50 +334,11 @@ async def run(data_path: Path, country_config=None) -> None:
         for m in dns_retry_candidates:
             mx = await lookup_mx(m["domain"])
             if mx:
-                spf = await lookup_spf(m["domain"])
-                spf_resolved = await resolve_spf_includes(spf) if spf else ""
-                mx_cnames = await resolve_mx_cnames(mx)
-                mx_ips = await resolve_mx_ips(mx)
-                mx_asns = await resolve_asns_from_ips(mx_ips) if mx_ips else set()
-                mx_ptrs = await resolve_mx_ptrs(mx_ips) if mx_ips else {}
-                mx_geoip_countries = (
-                    geoip.countries_for_mx_ips(mx_ips) if mx_ips else set()
+                enrichment = await _enrich_domain(m["domain"], mx, domestic)
+                m.update(enrichment)
+                print(
+                    f"  RECOVERED {m['bfs']:>5} {m['name']:<30} -> {enrichment['provider']}"
                 )
-                autodiscover = await lookup_autodiscover(m["domain"])
-                spf_asns = await resolve_spf_asns(spf_resolved or spf) if spf else set()
-                provider = classify(
-                    mx,
-                    spf,
-                    mx_cnames=mx_cnames,
-                    mx_asns=mx_asns or None,
-                    resolved_spf=spf_resolved or None,
-                    autodiscover=autodiscover or None,
-                    mx_ptrs=mx_ptrs or None,
-                    mx_geoip_countries=mx_geoip_countries or None,
-                    spf_asns=spf_asns or None,
-                    domestic=domestic,
-                )
-                gateway = detect_gateway(mx)
-                m["mx"] = mx
-                m["spf"] = spf
-                m["provider"] = provider
-                if spf_resolved and spf_resolved != spf:
-                    m["spf_resolved"] = spf_resolved
-                if gateway:
-                    m["gateway"] = gateway
-                if mx_cnames:
-                    m["mx_cnames"] = mx_cnames
-                if mx_asns:
-                    m["mx_asns"] = sorted(mx_asns)
-                if mx_ptrs:
-                    m["mx_ptrs"] = mx_ptrs
-                if mx_geoip_countries:
-                    m["mx_geoip_countries"] = sorted(mx_geoip_countries)
-                if spf_asns:
-                    m["spf_asns"] = sorted(spf_asns)
-                if autodiscover:
-                    m["autodiscover"] = autodiscover
-                print(f"  RECOVERED {m['bfs']:>5} {m['name']:<30} -> {provider}")
 
     # Step 2.5: SMTP banner check for independent/unknown with MX records
     smtp_candidates = [
@@ -522,7 +441,7 @@ async def run(data_path: Path, country_config=None) -> None:
         )
         reclassified = 0
         for m in reclass_candidates:
-            new = classify(
+            new_provider, new_reason = classify(
                 m["mx"],
                 m.get("spf"),
                 mx_cnames=m.get("mx_cnames"),
@@ -537,12 +456,15 @@ async def run(data_path: Path, country_config=None) -> None:
                 ),
                 spf_asns=set(m["spf_asns"]),
                 domestic=domestic,
+                dkim=m.get("dkim"),
+                txt_verifications=m.get("txt_verifications"),
             )
-            if new != m["provider"]:
+            if new_provider != m["provider"]:
                 print(
-                    f"  SPF-ASN  {m['bfs']:>5} {m['name']:<30} {m['provider']} -> {new}"
+                    f"  SPF-ASN  {m['bfs']:>5} {m['name']:<30} {m['provider']} -> {new_provider}"
                 )
-                m["provider"] = new
+                m["provider"] = new_provider
+                m["reason"] = new_reason
                 reclassified += 1
         print(f"  SPF-ASN reclassified: {reclassified}")
 

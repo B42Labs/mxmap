@@ -3,9 +3,11 @@ from mail_sovereignty.classify import (
     _classify_from_spf_asns,
     classify,
     classify_from_autodiscover,
+    classify_from_dkim,
     classify_from_mx,
     classify_from_smtp_banner,
     classify_from_spf,
+    classify_from_txt_verifications,
     detect_gateway,
     spf_mentions_providers,
 )
@@ -16,34 +18,35 @@ from mail_sovereignty.classify import (
 
 class TestClassify:
     def test_microsoft_mx(self):
-        assert classify(["bern-ch.mail.protection.outlook.com"], "") == "microsoft"
+        assert classify(["bern-ch.mail.protection.outlook.com"], "")[0] == "microsoft"
 
     def test_google_mx(self):
         assert (
-            classify(["aspmx.l.google.com", "alt1.aspmx.l.google.com"], "") == "google"
+            classify(["aspmx.l.google.com", "alt1.aspmx.l.google.com"], "")[0]
+            == "google"
         )
 
     def test_aws_mx(self):
-        assert classify(["inbound-smtp.us-east-1.amazonaws.com"], "") == "aws"
+        assert classify(["inbound-smtp.us-east-1.amazonaws.com"], "")[0] == "aws"
 
     def test_independent_mx(self):
-        assert classify(["mail.example.ch"], "") == "independent"
+        assert classify(["mail.example.ch"], "")[0] == "independent"
 
     def test_spf_fallback_when_no_mx(self):
         assert (
-            classify([], "v=spf1 include:spf.protection.outlook.com -all")
+            classify([], "v=spf1 include:spf.protection.outlook.com -all")[0]
             == "microsoft"
         )
 
     def test_no_mx_no_spf(self):
-        assert classify([], "") == "unknown"
+        assert classify([], "")[0] == "unknown"
 
     def test_mx_takes_precedence_over_spf(self):
         result = classify(
             ["mail.example.ch"],
             "v=spf1 include:spf.protection.outlook.com -all",
         )
-        assert result == "independent"
+        assert result[0] == "independent"
 
     def test_cname_detects_microsoft(self):
         result = classify(
@@ -51,13 +54,13 @@ class TestClassify:
             "",
             mx_cnames={"mail.example.ch": "mail.protection.outlook.com"},
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     def test_cname_none_stays_independent(self):
-        assert classify(["mail.example.ch"], "", mx_cnames=None) == "independent"
+        assert classify(["mail.example.ch"], "", mx_cnames=None)[0] == "independent"
 
     def test_cname_empty_stays_independent(self):
-        assert classify(["mail.example.ch"], "", mx_cnames={}) == "independent"
+        assert classify(["mail.example.ch"], "", mx_cnames={})[0] == "independent"
 
     def test_direct_mx_takes_precedence_over_cname(self):
         result = classify(
@@ -65,7 +68,7 @@ class TestClassify:
             "",
             mx_cnames={"mail.protection.outlook.com": "something.else.com"},
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     def test_non_hyperscaler_asn_stays_independent(self):
         result = classify(
@@ -73,7 +76,7 @@ class TestClassify:
             "",
             mx_asns={99999},
         )
-        assert result == "independent"
+        assert result[0] == "independent"
 
     def test_empty_asns_stays_independent(self):
         result = classify(
@@ -81,7 +84,7 @@ class TestClassify:
             "",
             mx_asns=set(),
         )
-        assert result == "independent"
+        assert result[0] == "independent"
 
     # ── Gateway detection in classify() ──
 
@@ -90,28 +93,28 @@ class TestClassify:
             ["customer.seppmail.cloud"],
             "v=spf1 include:spf.protection.outlook.com -all",
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     def test_cleanmail_gateway_with_google_spf(self):
         result = classify(
             ["mx.cleanmail.ch"],
             "v=spf1 include:_spf.google.com -all",
         )
-        assert result == "google"
+        assert result[0] == "google"
 
     def test_gateway_no_hyperscaler_spf_stays_independent(self):
         result = classify(
             ["filter.seppmail.cloud"],
             "v=spf1 ip4:1.2.3.4 -all",
         )
-        assert result == "independent"
+        assert result[0] == "independent"
 
     def test_gateway_empty_spf_stays_independent(self):
         result = classify(
             ["filter.seppmail.cloud"],
             "",
         )
-        assert result == "independent"
+        assert result[0] == "independent"
 
     def test_gateway_microsoft_in_resolved_spf(self):
         result = classify(
@@ -119,7 +122,7 @@ class TestClassify:
             "v=spf1 include:custom.ch -all",
             resolved_spf="v=spf1 include:custom.ch -all v=spf1 include:spf.protection.outlook.com -all",
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     def test_gateway_resolved_spf_not_checked_if_raw_matches(self):
         result = classify(
@@ -127,7 +130,7 @@ class TestClassify:
             "v=spf1 include:_spf.google.com -all",
             resolved_spf="v=spf1 include:spf.protection.outlook.com -all",
         )
-        assert result == "google"
+        assert result[0] == "google"
 
     def test_non_gateway_independent_mx_ignores_spf(self):
         """Self-hosted MX (not a gateway) should NOT be reclassified by SPF."""
@@ -135,56 +138,63 @@ class TestClassify:
             ["nemx9a.ne.ch"],
             "v=spf1 include:spf.protection.outlook.com -all",
         )
-        assert result == "independent"
+        assert result[0] == "independent"
 
     def test_barracuda_gateway_with_microsoft_spf(self):
         result = classify(
             ["mail.barracudanetworks.com"],
             "v=spf1 include:spf.protection.outlook.com -all",
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     def test_trendmicro_gateway_with_aws_spf(self):
         result = classify(
             ["filter.tmes.trendmicro.eu"],
             "v=spf1 include:amazonses.com -all",
         )
-        assert result == "aws"
+        assert result[0] == "aws"
 
     def test_hornetsecurity_gateway_with_microsoft_spf(self):
         result = classify(
             ["mx01.hornetsecurity.com"],
             "v=spf1 include:spf.protection.outlook.com -all",
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     def test_abxsec_gateway_with_microsoft_spf(self):
         result = classify(
             ["mta1.abxsec.com"],
             "v=spf1 include:spf.protection.outlook.com -all",
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     def test_proofpoint_gateway_with_microsoft_spf(self):
         result = classify(
             ["mx1.ppe-hosted.com"],
             "v=spf1 include:spf.protection.outlook.com -all",
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
+
+    def test_proofpoint_pphosted_gateway(self):
+        result = classify(
+            ["mx1.pphosted.com"],
+            "v=spf1 include:spf.protection.outlook.com -all",
+        )
+        assert result[0] == "microsoft"
 
     def test_sophos_gateway_with_microsoft_spf(self):
         result = classify(
             ["mx.hydra.sophos.com"],
             "v=spf1 include:spf.protection.outlook.com -all",
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     def test_spamvor_gateway_stays_independent_no_hyperscaler_spf(self):
         result = classify(
             ["relay.spamvor.com"],
             "v=spf1 ip4:1.2.3.4 -all",
         )
-        assert result == "independent"
+        assert result[0] == "independent"
 
     def test_gateway_does_not_override_direct_mx_match(self):
         """If MX directly matches a provider, gateway check is skipped."""
@@ -192,7 +202,7 @@ class TestClassify:
             ["mail.protection.outlook.com"],
             "v=spf1 include:_spf.google.com -all",
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     # ── Autodiscover in classify() ──
 
@@ -202,7 +212,7 @@ class TestClassify:
             "v=spf1 ip4:1.2.3.4 -all",
             autodiscover={"autodiscover_cname": "autodiscover.outlook.com"},
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     def test_gateway_autodiscover_reveals_google(self):
         result = classify(
@@ -210,16 +220,16 @@ class TestClassify:
             "",
             autodiscover={"autodiscover_srv": "autodiscover.google.com"},
         )
-        assert result == "google"
+        assert result[0] == "google"
 
-    def test_gateway_spf_takes_precedence_over_autodiscover(self):
-        """If SPF already identifies a provider, autodiscover is not checked."""
+    def test_gateway_spf_contradicted_by_autodiscover(self):
+        """If SPF says google but autodiscover says microsoft, autodiscover wins."""
         result = classify(
             ["mx.cleanmail.ch"],
             "v=spf1 include:_spf.google.com -all",
             autodiscover={"autodiscover_cname": "autodiscover.outlook.com"},
         )
-        assert result == "google"
+        assert result[0] == "microsoft"
 
     def test_non_gateway_independent_uses_autodiscover_fallback(self):
         """Non-gateway independent MX should use autodiscover as fallback."""
@@ -228,7 +238,7 @@ class TestClassify:
             "",
             autodiscover={"autodiscover_cname": "autodiscover.outlook.com"},
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     def test_non_gateway_independent_no_autodiscover_stays_independent(self):
         """Non-gateway independent MX without autodiscover stays independent."""
@@ -237,7 +247,7 @@ class TestClassify:
             "",
             autodiscover=None,
         )
-        assert result == "independent"
+        assert result[0] == "independent"
 
     def test_gateway_empty_autodiscover_stays_independent(self):
         result = classify(
@@ -245,7 +255,7 @@ class TestClassify:
             "",
             autodiscover={},
         )
-        assert result == "independent"
+        assert result[0] == "independent"
 
     def test_gateway_autodiscover_none_stays_independent(self):
         result = classify(
@@ -253,36 +263,155 @@ class TestClassify:
             "",
             autodiscover=None,
         )
-        assert result == "independent"
+        assert result[0] == "independent"
 
     # ── SPF-only resolved fallback ──
 
     def test_spf_only_resolved_fallback(self):
-        """No MX, raw SPF has no keywords, resolved_spf has Microsoft → microsoft."""
+        """No MX, raw SPF has no keywords, resolved_spf has Microsoft -> microsoft."""
         result = classify(
             [],
             "v=spf1 include:custom.ch -all",
             resolved_spf="v=spf1 include:custom.ch -all v=spf1 include:spf.protection.outlook.com -all",
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     def test_spf_only_raw_takes_precedence(self):
-        """No MX, raw SPF has Google, resolved_spf has Microsoft → google (raw wins)."""
+        """No MX, raw SPF has Google, resolved_spf has Microsoft -> google (raw wins)."""
         result = classify(
             [],
             "v=spf1 include:_spf.google.com -all",
             resolved_spf="v=spf1 include:spf.protection.outlook.com -all",
         )
-        assert result == "google"
+        assert result[0] == "google"
 
     def test_spf_only_no_resolved_stays_unknown(self):
-        """No MX, raw SPF has no keywords, no resolved_spf → unknown."""
+        """No MX, raw SPF has no keywords, no resolved_spf -> unknown."""
         result = classify(
             [],
             "v=spf1 ip4:1.2.3.4 -all",
             resolved_spf=None,
         )
-        assert result == "unknown"
+        assert result[0] == "unknown"
+
+    # ── Reason field ──
+
+    def test_reason_present_for_microsoft_mx(self):
+        _, reason = classify(["bern-ch.mail.protection.outlook.com"], "")
+        assert "Microsoft" in reason
+
+    def test_reason_present_for_independent(self):
+        _, reason = classify(["mail.example.ch"], "")
+        assert "self-hosted" in reason
+
+    def test_reason_present_for_unknown(self):
+        _, reason = classify([], "")
+        assert "no MX" in reason
+
+    def test_reason_present_for_gateway(self):
+        _, reason = classify(
+            ["customer.seppmail.cloud"],
+            "v=spf1 include:spf.protection.outlook.com -all",
+        )
+        assert "gateway" in reason
+
+    # ── DKIM in classify() ──
+
+    def test_non_gateway_dkim_reveals_microsoft(self):
+        result = classify(
+            ["mail.example.ch"],
+            "",
+            dkim={"selector1": "selector1-example._domainkey.example.onmicrosoft.com"},
+        )
+        assert result[0] == "microsoft"
+        assert "DKIM" in result[1]
+
+    def test_non_gateway_dkim_reveals_google(self):
+        result = classify(
+            ["mail.example.ch"],
+            "",
+            dkim={"google": "google._domainkey.example.google.com"},
+        )
+        assert result[0] == "google"
+
+    # ── TXT verification in gateway ──
+
+    def test_gateway_txt_verification_microsoft(self):
+        result = classify(
+            ["filter.seppmail.cloud"],
+            "",
+            txt_verifications={"microsoft": "abc123"},
+        )
+        assert result[0] == "microsoft"
+        assert "TXT verification" in result[1]
+
+
+# ── Gateway SPF hardening tests (Step 6) ────────────────────────────
+
+
+class TestGatewayHardening:
+    def test_gateway_spf_confirmed_by_dkim(self):
+        result = classify(
+            ["mx01.hornetsecurity.com"],
+            "v=spf1 include:spf.protection.outlook.com -all",
+            dkim={"selector1": "selector1._domainkey.example.onmicrosoft.com"},
+        )
+        assert result[0] == "microsoft"
+        assert "SPF+DKIM confirm" in result[1]
+
+    def test_gateway_spf_confirmed_by_autodiscover(self):
+        result = classify(
+            ["mx01.hornetsecurity.com"],
+            "v=spf1 include:spf.protection.outlook.com -all",
+            autodiscover={"autodiscover_cname": "autodiscover.outlook.com"},
+        )
+        assert result[0] == "microsoft"
+        assert "SPF+autodiscover confirm" in result[1]
+
+    def test_gateway_spf_contradicted_by_dkim(self):
+        """DKIM overrides SPF when they disagree."""
+        result = classify(
+            ["mx01.hornetsecurity.com"],
+            "v=spf1 include:_spf.google.com -all",
+            dkim={"selector1": "selector1._domainkey.example.onmicrosoft.com"},
+        )
+        assert result[0] == "microsoft"
+        assert "DKIM overrides SPF" in result[1]
+
+    def test_gateway_no_spf_dkim_only(self):
+        result = classify(
+            ["filter.seppmail.cloud"],
+            "",
+            dkim={"selector1": "selector1._domainkey.example.onmicrosoft.com"},
+        )
+        assert result[0] == "microsoft"
+        assert "DKIM signs via" in result[1]
+
+    def test_gateway_no_spf_txt_verification_only(self):
+        result = classify(
+            ["filter.seppmail.cloud"],
+            "",
+            txt_verifications={"google": "abc123"},
+        )
+        assert result[0] == "google"
+        assert "TXT verification" in result[1]
+
+    def test_gateway_no_signals_falls_through(self):
+        """Gateway with no SPF/AD/DKIM/TXT -> falls through to independent."""
+        result = classify(
+            ["filter.seppmail.cloud"],
+            "v=spf1 ip4:1.2.3.4 -all",
+        )
+        assert result[0] == "independent"
+
+    def test_gateway_spf_alone_when_no_other_signals(self):
+        """SPF trusted alone when no DKIM or autodiscover available."""
+        result = classify(
+            ["filter.seppmail.cloud"],
+            "v=spf1 include:spf.protection.outlook.com -all",
+        )
+        assert result[0] == "microsoft"
+        assert "SPF points to" in result[1]
 
 
 # ── classify_from_autodiscover() ────────────────────────────────────
@@ -318,6 +447,68 @@ class TestClassifyFromAutodiscover:
         )
 
 
+# ── classify_from_dkim() ───────────────────────────────────────────
+
+
+class TestClassifyFromDkim:
+    def test_none_returns_none(self):
+        assert classify_from_dkim(None) is None
+
+    def test_empty_dict_returns_none(self):
+        assert classify_from_dkim({}) is None
+
+    def test_microsoft_onmicrosoft(self):
+        assert (
+            classify_from_dkim(
+                {"selector1": "selector1._domainkey.tenant.onmicrosoft.com"}
+            )
+            == "microsoft"
+        )
+
+    def test_google(self):
+        assert (
+            classify_from_dkim({"google": "google._domainkey.example.google.com"})
+            == "google"
+        )
+
+    def test_googlemail(self):
+        assert (
+            classify_from_dkim({"google": "google._domainkey.googlemail.com"})
+            == "google"
+        )
+
+    def test_unrecognized_returns_none(self):
+        assert (
+            classify_from_dkim({"selector1": "selector1._domainkey.custom.ch"}) is None
+        )
+
+
+# ── classify_from_txt_verifications() ──────────────────────────────
+
+
+class TestClassifyFromTxtVerifications:
+    def test_none_returns_none(self):
+        assert classify_from_txt_verifications(None) is None
+
+    def test_empty_dict_returns_none(self):
+        assert classify_from_txt_verifications({}) is None
+
+    def test_microsoft(self):
+        assert classify_from_txt_verifications({"microsoft": "abc123"}) == "microsoft"
+
+    def test_google(self):
+        assert classify_from_txt_verifications({"google": "abc123"}) == "google"
+
+    def test_microsoft_takes_precedence(self):
+        assert (
+            classify_from_txt_verifications({"microsoft": "a", "google": "b"})
+            == "microsoft"
+        )
+
+    def test_unknown_provider_returns_none(self):
+        assert classify_from_txt_verifications({"aws": "abc"}) is None
+
+
 # ── detect_gateway() ────────────────────────────────────────────────
 
 
@@ -343,11 +534,44 @@ class TestDetectGateway:
     def test_proofpoint(self):
         assert detect_gateway(["mx1.ppe-hosted.com"]) == "proofpoint"
 
+    def test_proofpoint_pphosted(self):
+        assert detect_gateway(["mx1.pphosted.com"]) == "proofpoint"
+
     def test_sophos(self):
         assert detect_gateway(["mx.hydra.sophos.com"]) == "sophos"
 
     def test_spamvor(self):
         assert detect_gateway(["relay.spamvor.com"]) == "spamvor"
+
+    def test_fortimail(self):
+        assert detect_gateway(["mail.fortimailcloud.com"]) == "fortimail"
+
+    def test_fortimail_keyword(self):
+        assert detect_gateway(["fortimail.example.de"]) == "fortimail"
+
+    def test_nospamproxy(self):
+        assert detect_gateway(["mx.nospamproxy.de"]) == "nospamproxy"
+
+    def test_nospamproxy_asscan(self):
+        assert detect_gateway(["mx.as-scan.de"]) == "nospamproxy"
+
+    def test_antispameurope(self):
+        assert detect_gateway(["mx.antispameurope.com"]) == "antispameurope"
+
+    def test_retarus(self):
+        assert detect_gateway(["mx.retarus.com"]) == "retarus"
+
+    def test_mimecast(self):
+        assert detect_gateway(["eu.mimecast.com"]) == "mimecast"
+
+    def test_spamexperts(self):
+        assert detect_gateway(["mx.spamexperts.eu"]) == "spamexperts"
+
+    def test_spamexperts_net(self):
+        assert detect_gateway(["mx.spamexperts.net"]) == "spamexperts"
+
+    def test_spamexperts_com(self):
+        assert detect_gateway(["mx.spamexperts.com"]) == "spamexperts"
 
     def test_no_gateway(self):
         assert detect_gateway(["mail.example.ch"]) is None
@@ -443,7 +667,7 @@ class TestSpfMentionsProviders:
         assert "nl2go" in result
 
     def test_foreign_sender_not_in_classify(self):
-        assert classify([], "v=spf1 include:spf.mandrillapp.com -all") == "unknown"
+        assert classify([], "v=spf1 include:spf.mandrillapp.com -all")[0] == "unknown"
 
     def test_foreign_sender_not_in_classify_from_spf(self):
         assert classify_from_spf("v=spf1 include:spf.mandrillapp.com -all") is None
@@ -531,7 +755,7 @@ class TestDomesticClassification:
             mx_asns={24940},
             domestic=DE_DOMESTIC,
         )
-        assert result == "german-isp"
+        assert result[0] == "german-isp"
 
     def test_geoip_match_non_hyperscaler(self):
         result = classify(
@@ -541,7 +765,7 @@ class TestDomesticClassification:
             mx_geoip_countries={"DE"},
             domestic=DE_DOMESTIC,
         )
-        assert result == "german-isp"
+        assert result[0] == "german-isp"
 
     def test_geoip_match_hyperscaler_only_stays_independent(self):
         result = classify(
@@ -551,7 +775,7 @@ class TestDomesticClassification:
             mx_geoip_countries={"DE"},
             domestic=DE_DOMESTIC,
         )
-        assert result == "independent"
+        assert result[0] == "independent"
 
     def test_geoip_match_no_asns(self):
         """GeoIP match with no ASN data at all should classify as domestic."""
@@ -562,7 +786,7 @@ class TestDomesticClassification:
             mx_geoip_countries={"DE"},
             domestic=DE_DOMESTIC,
         )
-        assert result == "german-isp"
+        assert result[0] == "german-isp"
 
     def test_ptr_domain_match(self):
         result = classify(
@@ -571,7 +795,7 @@ class TestDomesticClassification:
             mx_ptrs={"1.2.3.4": "mail.strato.de"},
             domestic=DE_DOMESTIC,
         )
-        assert result == "german-isp"
+        assert result[0] == "german-isp"
 
     def test_ptr_tld_match(self):
         result = classify(
@@ -580,7 +804,7 @@ class TestDomesticClassification:
             mx_ptrs={"1.2.3.4": "server.someprovider.de"},
             domestic=DE_DOMESTIC,
         )
-        assert result == "german-isp"
+        assert result[0] == "german-isp"
 
     def test_mx_domain_match(self):
         result = classify(
@@ -588,7 +812,7 @@ class TestDomesticClassification:
             "",
             domestic=DE_DOMESTIC,
         )
-        assert result == "german-isp"
+        assert result[0] == "german-isp"
 
     def test_mx_tld_match(self):
         result = classify(
@@ -596,7 +820,7 @@ class TestDomesticClassification:
             "",
             domestic=DE_DOMESTIC,
         )
-        assert result == "german-isp"
+        assert result[0] == "german-isp"
 
     def test_no_domestic_config_stays_independent(self):
         result = classify(
@@ -604,7 +828,7 @@ class TestDomesticClassification:
             "",
             domestic=None,
         )
-        assert result == "independent"
+        assert result[0] == "independent"
 
     def test_hyperscaler_mx_not_overridden(self):
         result = classify(
@@ -613,7 +837,7 @@ class TestDomesticClassification:
             mx_asns={3303},
             domestic=CH_DOMESTIC,
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     def test_gateway_with_domestic_backend(self):
         """Gateway with no hyperscaler SPF + domestic ASN -> domestic."""
@@ -623,7 +847,7 @@ class TestDomesticClassification:
             mx_asns={3303},
             domestic=CH_DOMESTIC,
         )
-        assert result == "swiss-isp"
+        assert result[0] == "swiss-isp"
 
     def test_gateway_with_hyperscaler_spf_not_domestic(self):
         """Gateway with hyperscaler SPF should return hyperscaler, not domestic."""
@@ -633,7 +857,7 @@ class TestDomesticClassification:
             mx_asns={3303},
             domestic=CH_DOMESTIC,
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     def test_swiss_domestic_ch_tld(self):
         result = classify(
@@ -641,7 +865,7 @@ class TestDomesticClassification:
             "",
             domestic=CH_DOMESTIC,
         )
-        assert result == "swiss-isp"
+        assert result[0] == "swiss-isp"
 
     def test_no_signals_stays_independent(self):
         result = classify(
@@ -650,7 +874,7 @@ class TestDomesticClassification:
             mx_asns={99999},
             domestic=DE_DOMESTIC,
         )
-        assert result == "independent"
+        assert result[0] == "independent"
 
 
 # ── _classify_from_spf_asns() ─────────────────────────────────────
@@ -692,7 +916,7 @@ class TestClassifySpfAsnIntegration:
             "v=spf1 ip4:40.92.0.0/24 -all",
             spf_asns={8075},
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     def test_spf_asn_after_autodiscover(self):
         """Autodiscover takes precedence over SPF ASN."""
@@ -700,20 +924,20 @@ class TestClassifySpfAsnIntegration:
             ["mail.example.de"],
             "",
             autodiscover={"autodiscover_cname": "autodiscover.outlook.com"},
-            spf_asns={15169},  # Google ASN — should be ignored
+            spf_asns={15169},  # Google ASN -- should be ignored
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     def test_spf_asn_before_domestic(self):
         """SPF ASN takes precedence over domestic ISP classification."""
         result = classify(
             ["mail.example.de"],
             "v=spf1 ip4:40.92.0.0/24 -all",
-            mx_asns={24940},  # Hetzner — domestic
+            mx_asns={24940},  # Hetzner -- domestic
             spf_asns={8075},  # Microsoft
             domestic=DE_DOMESTIC,
         )
-        assert result == "microsoft"
+        assert result[0] == "microsoft"
 
     def test_spf_asn_none_no_change(self):
         """Backward compat: spf_asns=None doesn't change classification."""
@@ -724,7 +948,7 @@ class TestClassifySpfAsnIntegration:
             domestic=DE_DOMESTIC,
         )
         # Should use .de TLD heuristic -> german-isp
-        assert result == "german-isp"
+        assert result[0] == "german-isp"
 
     def test_spf_asn_empty_set_no_change(self):
         """Empty spf_asns set doesn't change classification."""
@@ -734,7 +958,7 @@ class TestClassifySpfAsnIntegration:
             spf_asns=set(),
             domestic=DE_DOMESTIC,
         )
-        assert result == "german-isp"
+        assert result[0] == "german-isp"
 
     def test_spf_asn_google_over_independent(self):
         """Independent MX + Google SPF ASN -> google."""
@@ -743,4 +967,4 @@ class TestClassifySpfAsnIntegration:
             "v=spf1 ip4:74.125.0.0/24 -all",
             spf_asns={15169},
         )
-        assert result == "google"
+        assert result[0] == "google"

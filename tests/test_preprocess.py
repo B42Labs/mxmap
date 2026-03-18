@@ -258,9 +258,12 @@ class TestScanMunicipality:
                 return_value=["mail.protection.outlook.com"],
             ),
             patch(
-                "mail_sovereignty.preprocess.lookup_spf",
+                "mail_sovereignty.preprocess.lookup_txt",
                 new_callable=AsyncMock,
-                return_value="v=spf1 include:spf.protection.outlook.com -all",
+                return_value=(
+                    "v=spf1 include:spf.protection.outlook.com -all",
+                    {},
+                ),
             ),
             patch(
                 "mail_sovereignty.preprocess.resolve_spf_includes",
@@ -272,11 +275,17 @@ class TestScanMunicipality:
                 new_callable=AsyncMock,
                 return_value={},
             ),
+            patch(
+                "mail_sovereignty.preprocess.lookup_dkim",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
         ):
             result = await scan_municipality(m, sem)
 
         assert result["provider"] == "microsoft"
         assert result["domain"] == "bern.ch"
+        assert "reason" in result
 
     async def test_no_website_guesses_domain(self):
         m = {"bfs": "999", "name": "Bern", "canton": "Bern", "website": ""}
@@ -290,9 +299,9 @@ class TestScanMunicipality:
         with (
             patch("mail_sovereignty.preprocess.lookup_mx", side_effect=fake_lookup_mx),
             patch(
-                "mail_sovereignty.preprocess.lookup_spf",
+                "mail_sovereignty.preprocess.lookup_txt",
                 new_callable=AsyncMock,
-                return_value="",
+                return_value=("", {}),
             ),
             patch(
                 "mail_sovereignty.preprocess.resolve_spf_includes",
@@ -304,11 +313,17 @@ class TestScanMunicipality:
                 new_callable=AsyncMock,
                 return_value={},
             ),
+            patch(
+                "mail_sovereignty.preprocess.lookup_dkim",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
         ):
             result = await scan_municipality(m, sem)
 
         assert result["provider"] == "independent"
         assert result["domain"] == "bern.ch"
+        assert "reason" in result
 
     async def test_skips_guess_matching_website_domain(self):
         m = {
@@ -330,9 +345,9 @@ class TestScanMunicipality:
         with (
             patch("mail_sovereignty.preprocess.lookup_mx", side_effect=fake_lookup_mx),
             patch(
-                "mail_sovereignty.preprocess.lookup_spf",
+                "mail_sovereignty.preprocess.lookup_txt",
                 new_callable=AsyncMock,
-                return_value="",
+                return_value=("", {}),
             ),
             patch(
                 "mail_sovereignty.preprocess.resolve_spf_includes",
@@ -341,6 +356,11 @@ class TestScanMunicipality:
             ),
             patch(
                 "mail_sovereignty.preprocess.lookup_autodiscover",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "mail_sovereignty.preprocess.lookup_dkim",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -362,14 +382,15 @@ class TestScanMunicipality:
                 return_value=[],
             ),
             patch(
-                "mail_sovereignty.preprocess.lookup_spf",
+                "mail_sovereignty.preprocess.lookup_txt",
                 new_callable=AsyncMock,
-                return_value="",
+                return_value=("", {}),
             ),
         ):
             result = await scan_municipality(m, sem)
 
         assert result["provider"] == "unknown"
+        assert "reason" in result
 
     async def test_gateway_detected_and_stored(self):
         m = {
@@ -387,9 +408,12 @@ class TestScanMunicipality:
                 return_value=["customer.seppmail.cloud"],
             ),
             patch(
-                "mail_sovereignty.preprocess.lookup_spf",
+                "mail_sovereignty.preprocess.lookup_txt",
                 new_callable=AsyncMock,
-                return_value="v=spf1 include:spf.protection.outlook.com -all",
+                return_value=(
+                    "v=spf1 include:spf.protection.outlook.com -all",
+                    {},
+                ),
             ),
             patch(
                 "mail_sovereignty.preprocess.resolve_spf_includes",
@@ -401,11 +425,17 @@ class TestScanMunicipality:
                 new_callable=AsyncMock,
                 return_value={},
             ),
+            patch(
+                "mail_sovereignty.preprocess.lookup_dkim",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
         ):
             result = await scan_municipality(m, sem)
 
         assert result["provider"] == "microsoft"
         assert result["gateway"] == "seppmail"
+        assert "reason" in result
 
     async def test_spf_resolved_stored_when_different(self):
         m = {
@@ -426,9 +456,9 @@ class TestScanMunicipality:
                 return_value=["mx.cleanmail.ch"],
             ),
             patch(
-                "mail_sovereignty.preprocess.lookup_spf",
+                "mail_sovereignty.preprocess.lookup_txt",
                 new_callable=AsyncMock,
-                return_value=raw_spf,
+                return_value=(raw_spf, {}),
             ),
             patch(
                 "mail_sovereignty.preprocess.resolve_spf_includes",
@@ -440,12 +470,18 @@ class TestScanMunicipality:
                 new_callable=AsyncMock,
                 return_value={},
             ),
+            patch(
+                "mail_sovereignty.preprocess.lookup_dkim",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
         ):
             result = await scan_municipality(m, sem)
 
         assert result["provider"] == "microsoft"
         assert result["gateway"] == "cleanmail"
         assert result["spf_resolved"] == resolved_spf
+        assert "reason" in result
 
     async def test_autodiscover_stored_when_found(self):
         m = {
@@ -463,9 +499,9 @@ class TestScanMunicipality:
                 return_value=["mx01.hornetsecurity.com"],
             ),
             patch(
-                "mail_sovereignty.preprocess.lookup_spf",
+                "mail_sovereignty.preprocess.lookup_txt",
                 new_callable=AsyncMock,
-                return_value="v=spf1 ip4:1.2.3.4 -all",
+                return_value=("v=spf1 ip4:1.2.3.4 -all", {}),
             ),
             patch(
                 "mail_sovereignty.preprocess.resolve_spf_includes",
@@ -477,6 +513,11 @@ class TestScanMunicipality:
                 new_callable=AsyncMock,
                 return_value={"autodiscover_cname": "autodiscover.outlook.com"},
             ),
+            patch(
+                "mail_sovereignty.preprocess.lookup_dkim",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
         ):
             result = await scan_municipality(m, sem)
 
@@ -485,6 +526,7 @@ class TestScanMunicipality:
         assert result["autodiscover"] == {
             "autodiscover_cname": "autodiscover.outlook.com"
         }
+        assert "reason" in result
 
 
 # ── run() ────────────────────────────────────────────────────────────
@@ -518,9 +560,9 @@ class TestPreprocessRun:
                 return_value=["mx.bern.ch"],
             ),
             patch(
-                "mail_sovereignty.preprocess.lookup_spf",
+                "mail_sovereignty.preprocess.lookup_txt",
                 new_callable=AsyncMock,
-                return_value="",
+                return_value=("", {}),
             ),
             patch(
                 "mail_sovereignty.preprocess.resolve_spf_includes",
@@ -529,6 +571,11 @@ class TestPreprocessRun:
             ),
             patch(
                 "mail_sovereignty.preprocess.lookup_autodiscover",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "mail_sovereignty.preprocess.lookup_dkim",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -574,9 +621,9 @@ class TestPreprocessRun:
                 return_value=["mx.bern.ch"],
             ),
             patch(
-                "mail_sovereignty.preprocess.lookup_spf",
+                "mail_sovereignty.preprocess.lookup_txt",
                 new_callable=AsyncMock,
-                return_value="",
+                return_value=("", {}),
             ),
             patch(
                 "mail_sovereignty.preprocess.resolve_spf_includes",
@@ -585,6 +632,11 @@ class TestPreprocessRun:
             ),
             patch(
                 "mail_sovereignty.preprocess.lookup_autodiscover",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "mail_sovereignty.preprocess.lookup_dkim",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -630,9 +682,9 @@ class TestPreprocessRun:
                 return_value=["mx.test.ch"],
             ),
             patch(
-                "mail_sovereignty.preprocess.lookup_spf",
+                "mail_sovereignty.preprocess.lookup_txt",
                 new_callable=AsyncMock,
-                return_value="",
+                return_value=("", {}),
             ),
             patch(
                 "mail_sovereignty.preprocess.resolve_spf_includes",
@@ -641,6 +693,11 @@ class TestPreprocessRun:
             ),
             patch(
                 "mail_sovereignty.preprocess.lookup_autodiscover",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "mail_sovereignty.preprocess.lookup_dkim",
                 new_callable=AsyncMock,
                 return_value={},
             ),

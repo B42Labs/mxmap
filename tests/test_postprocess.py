@@ -145,12 +145,17 @@ class TestProcessUnknown:
                 return_value=["mail.test.ch"],
             ),
             patch(
-                "mail_sovereignty.postprocess.lookup_spf",
+                "mail_sovereignty.postprocess.lookup_txt",
                 new_callable=AsyncMock,
-                return_value="",
+                return_value=("", {}),
             ),
             patch(
                 "mail_sovereignty.postprocess.lookup_autodiscover",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "mail_sovereignty.postprocess.lookup_dkim",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -158,6 +163,7 @@ class TestProcessUnknown:
             result = await process_unknown(client, sem, m)
 
         assert result["provider"] == "independent"
+        assert result.get("reason") is not None
 
     async def test_no_email_domains_found(self):
         m = {"bfs": "999", "name": "Test", "domain": "test.ch", "provider": "unknown"}
@@ -203,9 +209,9 @@ class TestProcessUnknownEnrichment:
                 return_value=["mx.seppmail.cloud"],
             ),
             patch(
-                "mail_sovereignty.postprocess.lookup_spf",
+                "mail_sovereignty.postprocess.lookup_txt",
                 new_callable=AsyncMock,
-                return_value=raw_spf,
+                return_value=(raw_spf, {}),
             ),
             patch(
                 "mail_sovereignty.postprocess.resolve_spf_includes",
@@ -240,6 +246,11 @@ class TestProcessUnknownEnrichment:
                 new_callable=AsyncMock,
                 return_value={"autodiscover_cname": "autodiscover.outlook.com"},
             ),
+            patch(
+                "mail_sovereignty.postprocess.lookup_dkim",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
         ):
             mock_geoip.countries_for_mx_ips.return_value = set()
             result = await process_unknown(client, sem, m)
@@ -252,6 +263,7 @@ class TestProcessUnknownEnrichment:
         assert result["autodiscover"] == {
             "autodiscover_cname": "autodiscover.outlook.com"
         }
+        assert result.get("reason") is not None
 
 
 class TestScrapeEmailDomainsNoEmails:
@@ -302,12 +314,20 @@ class TestDnsRetryStep:
                 return_value=["gampelen-ch.mail.protection.outlook.com"],
             ),
             patch(
-                "mail_sovereignty.postprocess.lookup_spf",
+                "mail_sovereignty.postprocess.lookup_txt",
                 new_callable=AsyncMock,
-                return_value="v=spf1 include:spf.protection.outlook.com -all",
+                return_value=(
+                    "v=spf1 include:spf.protection.outlook.com -all",
+                    {},
+                ),
             ),
             patch(
                 "mail_sovereignty.postprocess.lookup_autodiscover",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "mail_sovereignty.postprocess.lookup_dkim",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -316,6 +336,7 @@ class TestDnsRetryStep:
 
         result = json.loads(path.read_text())
         assert result["municipalities"]["1234"]["provider"] == "microsoft"
+        assert result["municipalities"]["1234"].get("reason") is not None
 
     async def test_skips_unknown_without_domain(self, tmp_path):
         data = {
@@ -555,9 +576,12 @@ class TestDnsRelookup:
                 return_value=["mail.protection.outlook.com"],
             ),
             patch(
-                "mail_sovereignty.postprocess.lookup_spf",
+                "mail_sovereignty.postprocess.lookup_txt",
                 new_callable=AsyncMock,
-                return_value="v=spf1 include:spf.protection.outlook.com -all",
+                return_value=(
+                    "v=spf1 include:spf.protection.outlook.com -all",
+                    {},
+                ),
             ),
             patch(
                 "mail_sovereignty.postprocess.resolve_spf_includes",
@@ -593,6 +617,11 @@ class TestDnsRelookup:
                 return_value={},
             ),
             patch(
+                "mail_sovereignty.postprocess.lookup_dkim",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
                 "mail_sovereignty.postprocess.fetch_smtp_banner",
                 new_callable=AsyncMock,
                 return_value={"banner": "", "ehlo": ""},
@@ -604,6 +633,7 @@ class TestDnsRelookup:
         result = json.loads(path.read_text())
         assert result["municipalities"]["5000"]["domain"] == "relookup.ch"
         assert result["municipalities"]["5000"]["provider"] == "microsoft"
+        assert result["municipalities"]["5000"].get("reason") is not None
 
     async def test_merged_provider_clears_mx_spf(self, tmp_path):
         data = {
@@ -677,9 +707,12 @@ class TestDnsRetryEnrichment:
                 return_value=["mx.seppmail.cloud"],
             ),
             patch(
-                "mail_sovereignty.postprocess.lookup_spf",
+                "mail_sovereignty.postprocess.lookup_txt",
                 new_callable=AsyncMock,
-                return_value="v=spf1 include:spf.protection.outlook.com -all",
+                return_value=(
+                    "v=spf1 include:spf.protection.outlook.com -all",
+                    {},
+                ),
             ),
             patch(
                 "mail_sovereignty.postprocess.resolve_spf_includes",
@@ -715,6 +748,11 @@ class TestDnsRetryEnrichment:
                 return_value={"autodiscover_cname": "autodiscover.outlook.com"},
             ),
             patch(
+                "mail_sovereignty.postprocess.lookup_dkim",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
                 "mail_sovereignty.postprocess.fetch_smtp_banner",
                 new_callable=AsyncMock,
                 return_value={"banner": "", "ehlo": ""},
@@ -730,6 +768,7 @@ class TestDnsRetryEnrichment:
         assert m["mx_cnames"] == {"mx.seppmail.cloud": "target.outlook.com"}
         assert m["mx_asns"] == [8075]
         assert m["autodiscover"] == {"autodiscover_cname": "autodiscover.outlook.com"}
+        assert m.get("reason") is not None
 
 
 class TestPostprocessRun:

@@ -50,6 +50,38 @@ manual_override_ids = []
 34240 = "manitu"
 21499 = "Host Europe"
 33846 = "Dataport"
+553 = "BelWue"
+6687 = "communelink"
+8767 = "M-net"
+8881 = "Versatel/1&1"
+9063 = "Saarland IT"
+9145 = "EWE TEL"
+9197 = "ekom21"
+12693 = "DIKOM Brandenburg"
+12897 = "ENTEGA"
+13045 = "KDO Niedersachsen"
+13101 = "TNG Stadtnetz"
+15598 = "QSC/q.beyond"
+16024 = "GELSEN-NET"
+16097 = "TELEPORT"
+20810 = "ekom21"
+21473 = "Pfalzkom"
+24961 = "myLoc/nol-IS"
+29014 = "IN-Ulm"
+30238 = "Trier-net"
+34928 = "regio iT"
+42652 = "eCube/Saarland IT"
+48049 = "ITK Rheinland"
+50964 = "Komm.ONE"
+60123 = "WTnet Wuppertal"
+61352 = "KISA Sachsen"
+198435 = "DVZ-MV"
+201318 = "Suedwestfalen IT"
+202577 = "KDVZ Frechen"
+210849 = "ITK Rheinland"
+8319 = "KGRZ Fulda"
+8351 = "SIS Schwerin"
+8820 = "TAL.de"
 
 [map]
 center_lat = 51.1
@@ -65,6 +97,7 @@ domestic_domains = [
     "strato.de", "ionos.com", "hetzner.com", "hetzner.de",
     "df.eu", "manitu.de", "hostsharing.net", "jpberlin.de",
     "profihost.com", "mittwald.de", "netcup.de",
+    "belwue.de", "ekom21.de", "regioit.de", "komm-one.de",
 ]
 
 [site]

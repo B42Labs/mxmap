@@ -71,6 +71,34 @@ def _classify_from_spf_asns(spf_asns: set[int] | None) -> str | None:
     return None
 
 
+def classify_from_dkim(dkim: dict[str, str] | None) -> str | None:
+    """Classify provider from DKIM CNAME targets."""
+    if not dkim:
+        return None
+    blob = " ".join(dkim.values()).lower()
+    if "onmicrosoft.com" in blob:
+        return "microsoft"
+    if "google" in blob or "googlemail" in blob:
+        return "google"
+    for provider, keywords in PROVIDER_KEYWORDS.items():
+        if any(k in blob for k in keywords):
+            return provider
+    return None
+
+
+def classify_from_txt_verifications(
+    txt_verifications: dict[str, str] | None,
+) -> str | None:
+    """Classify provider from TXT verification tokens (ms=, google-site-verification=)."""
+    if not txt_verifications:
+        return None
+    if "microsoft" in txt_verifications:
+        return "microsoft"
+    if "google" in txt_verifications:
+        return "google"
+    return None
+
+
 def _check_domestic(
     mx_records: list[str],
     mx_asns: set[int] | None,
@@ -119,6 +147,15 @@ def _check_domestic(
     return False
 
 
+def _check_spf_all(spf_record: str | None, resolved_spf: str | None) -> str | None:
+    """Check raw + resolved SPF for hyperscaler keywords in one call."""
+    spf_blob = (spf_record or "").lower()
+    provider = _check_spf_for_provider(spf_blob)
+    if not provider and resolved_spf:
+        provider = _check_spf_for_provider(resolved_spf.lower())
+    return provider
+
+
 def classify(
     mx_records: list[str],
     spf_record: str | None,
@@ -130,72 +167,116 @@ def classify(
     mx_geoip_countries: set[str] | None = None,
     spf_asns: set[int] | None = None,
     domestic: DomesticConfig | None = None,
-) -> str:
-    """Classify email provider based on MX, CNAME targets, and SPF.
+    dkim: dict[str, str] | None = None,
+    txt_verifications: dict[str, str] | None = None,
+) -> tuple[str, str]:
+    """Classify email provider based on MX, CNAME targets, SPF, DKIM, and TXT.
+
+    Returns (provider, reason) tuple.
 
     Detects hyperscalers (Microsoft, Google, AWS). Everything else with
     valid MX records is classified as 'independent'.
 
     MX records are checked first (they show where mail is actually delivered).
     CNAME targets of MX hosts are checked next (to detect hidden hyperscaler usage).
-    If MX points to a known gateway, SPF (including resolved includes) is checked
-    to identify the actual mailbox provider behind the gateway.
+    If MX points to a known gateway, multiple signals (SPF, DKIM, autodiscover,
+    TXT verification) are checked to identify the actual mailbox provider.
     SPF is only used as fallback when MX alone is inconclusive.
     """
     mx_blob = " ".join(mx_records).lower()
 
     if any(k in mx_blob for k in MICROSOFT_KEYWORDS):
-        return "microsoft"
+        return ("microsoft", "MX matches Microsoft")
     if any(k in mx_blob for k in GOOGLE_KEYWORDS):
-        return "google"
+        return ("google", "MX matches Google")
     if any(k in mx_blob for k in AWS_KEYWORDS):
-        return "aws"
+        return ("aws", "MX matches AWS")
 
     if mx_records and mx_cnames:
         cname_blob = " ".join(mx_cnames.values()).lower()
         if any(k in cname_blob for k in MICROSOFT_KEYWORDS):
-            return "microsoft"
+            return ("microsoft", "MX CNAME resolves to Microsoft")
         if any(k in cname_blob for k in GOOGLE_KEYWORDS):
-            return "google"
+            return ("google", "MX CNAME resolves to Google")
         if any(k in cname_blob for k in AWS_KEYWORDS):
-            return "aws"
+            return ("aws", "MX CNAME resolves to AWS")
 
-    if mx_records and detect_gateway(mx_records):
-        spf_blob = (spf_record or "").lower()
-        provider = _check_spf_for_provider(spf_blob)
-        if not provider and resolved_spf:
-            provider = _check_spf_for_provider(resolved_spf.lower())
-        if provider:
-            return provider
-        # No hyperscaler in SPF — check autodiscover for backend provider
+    gateway = detect_gateway(mx_records) if mx_records else None
+    if gateway:
+        # Collect all signals
+        spf_provider = _check_spf_all(spf_record, resolved_spf)
         ad_provider = classify_from_autodiscover(autodiscover)
+        dkim_provider = classify_from_dkim(dkim)
+        txt_provider = classify_from_txt_verifications(txt_verifications)
+
+        if spf_provider:
+            # Require confirmation from DKIM or autodiscover
+            if spf_provider == dkim_provider or spf_provider == ad_provider:
+                confirm = "DKIM" if spf_provider == dkim_provider else "autodiscover"
+                return (
+                    spf_provider,
+                    f"MX is {gateway} gateway; SPF+{confirm} confirm {spf_provider}",
+                )
+            # No confirmation sources available — trust SPF alone (backward compat)
+            if not ad_provider and not dkim_provider:
+                return (
+                    spf_provider,
+                    f"MX is {gateway} gateway; SPF points to {spf_provider}",
+                )
+            # Contradiction — prefer DKIM > autodiscover
+            if dkim_provider:
+                return (
+                    dkim_provider,
+                    f"MX is {gateway} gateway; DKIM overrides SPF ({dkim_provider} vs {spf_provider})",
+                )
+            if ad_provider:
+                return (
+                    ad_provider,
+                    f"MX is {gateway} gateway; autodiscover overrides SPF ({ad_provider} vs {spf_provider})",
+                )
+
+        # No SPF provider — try other signals
         if ad_provider:
-            return ad_provider
+            return (
+                ad_provider,
+                f"MX is {gateway} gateway; autodiscover points to {ad_provider}",
+            )
+        if dkim_provider:
+            return (
+                dkim_provider,
+                f"MX is {gateway} gateway; DKIM signs via {dkim_provider}",
+            )
+        if txt_provider:
+            return (
+                txt_provider,
+                f"MX is {gateway} gateway; TXT verification proves {txt_provider}",
+            )
         # Gateway relays to independent, fall through
 
     if mx_records:
         # Check autodiscover for hyperscaler backend behind independent MX
         ad_provider = classify_from_autodiscover(autodiscover)
         if ad_provider:
-            return ad_provider
+            return (ad_provider, f"autodiscover points to {ad_provider}")
+        # Check DKIM for hyperscaler backend
+        dkim_provider = classify_from_dkim(dkim)
+        if dkim_provider:
+            return (dkim_provider, f"DKIM reveals {dkim_provider} backend")
         # Check SPF ip4: ASNs for mailbox-hosting hyperscaler
         spf_asn_provider = _classify_from_spf_asns(spf_asns)
         if spf_asn_provider:
-            return spf_asn_provider
+            return (spf_asn_provider, f"SPF ip4 ASN matches {spf_asn_provider}")
         if domestic and _check_domestic(
             mx_records, mx_asns, mx_ptrs, mx_geoip_countries, domestic
         ):
-            return domestic.label
-        return "independent"
+            return (domestic.label, "domestic ISP signals")
+        return ("independent", "MX is self-hosted")
 
-    spf_blob = (spf_record or "").lower()
-    provider = _check_spf_for_provider(spf_blob)
-    if not provider and resolved_spf:
-        provider = _check_spf_for_provider(resolved_spf.lower())
-    if provider:
-        return provider
+    spf_provider = _check_spf_all(spf_record, resolved_spf)
+    if spf_provider:
+        return (spf_provider, f"no MX; SPF matches {spf_provider}")
 
-    return "unknown"
+    return ("unknown", "no MX records found")
 
 
 def classify_from_mx(mx_records: list[str]) -> str | None:
