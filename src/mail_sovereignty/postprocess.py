@@ -195,6 +195,10 @@ async def _enrich_domain(
         result["dkim"] = dkim
     if txt_verifications:
         result["txt_verifications"] = txt_verifications
+    if mx_ips:
+        result["mx_ips"] = {
+            host: sorted(ips) for host, ips in mx_ips.items()
+        }
     return result
 
 

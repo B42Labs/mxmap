@@ -21,11 +21,24 @@ def build(country: str, config) -> None:
 
     site_cfg = dict(config.site)
 
+    # Build combined ASN name map for popup display
+    raw_public_it = dict(config.get("public_it_asns", {}))
+    raw_hosted = dict(config.get("hosted_provider_asns", {}))
+    raw_domestic = dict(config.get("domestic_isp_asns", {}))
+    asn_names = {}
+    for k, v in raw_public_it.items():
+        asn_names[str(k)] = str(v)
+    for k, v in raw_hosted.items():
+        asn_names[str(k)] = str(v)
+    for k, v in raw_domestic.items():
+        asn_names[str(k)] = str(v)
+
     context = {
         "map": map_cfg,
         "site": site_cfg,
         "country_code": country,
         "domestic_isp_label": map_cfg.get("domestic_isp_label", "domestic-isp"),
+        "asn_names": asn_names,
     }
 
     for tpl_name in ["index.html", "datenschutz.html", "impressum.html"]:

@@ -299,6 +299,10 @@ async def scan_municipality(
             entry["dkim"] = dkim
         if txt_verifications:
             entry["txt_verifications"] = txt_verifications
+        if mx_ips:
+            entry["mx_ips"] = {
+                host: sorted(ips) for host, ips in mx_ips.items()
+            }
         return entry
 
 

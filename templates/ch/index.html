@@ -126,6 +126,25 @@
   .cat-badge.swiss { background: #e0f5f1; color: #10B898; }
   .cat-badge.foreign { background: #fef3c7; color: #b45309; }
   .cat-badge.unknown { background: #f3f4f6; color: #6b7280; }
+  .popup-reason {
+    margin-top: 8px; padding: 5px 8px; background: #f0f4ff; border-left: 3px solid #4DA3FF;
+    font-size: 12px; color: #334155; line-height: 1.4;
+  }
+  .popup-detail { font-size: 11px; color: #888; font-family: ui-monospace, monospace; line-height: 1.4; }
+  .popup-detail-row { margin: 1px 0; padding-left: 12px; }
+  .popup-asn { display: inline-block; padding: 0 4px; border-radius: 2px; font-size: 10px; font-weight: 600; background: #f1f5f9; color: #475569; margin-right: 3px; }
+  .popup-ip { color: #6b7280; font-family: ui-monospace, monospace; font-size: 10px; }
+  .popup-raw { font-family: ui-monospace, monospace; font-size: 10px; color: #666; word-break: break-all; background: #f8f9fa; padding: 4px 6px; border-radius: 3px; margin-top: 3px; max-height: 60px; overflow-y: auto; }
+  .popup-details { margin-top: 8px; }
+  .popup-details summary { font-size: 11px; color: #6366f1; cursor: pointer; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+  .popup-details summary:hover { color: #4338ca; }
+  .popup-details[open] summary { margin-bottom: 6px; }
+  .popup-subsection { margin-top: 6px; }
+  .popup-subsection-title { font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 0.3px; font-weight: 600; margin-bottom: 1px; }
+  .popup-kv { font-size: 11px; color: #555; }
+  .popup-kv .k { font-weight: 600; color: #333; }
+  .popup-country-flag { font-size: 12px; margin-left: 2px; }
+  .popup-gateway-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 600; background: #ede9fe; color: #6d28d9; margin-left: 4px; }
   .legend-group { margin-top: 8px; }
   .legend-group:first-child { margin-top: 4px; }
   .legend-group-label { font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 0.3px; font-weight: 600; display: block; margin-bottom: 2px; }
@@ -202,6 +221,7 @@ const LABELS = {
 
 const COUNTRY_TLDS = {{ map.country_tlds | tojson }};
 const DOMESTIC_DOMAINS = {{ map.domestic_domains | tojson }};
+const ASN_NAMES = {{ asn_names | tojson }};
 
 function escapeHtml(str) {
   const el = document.createElement('span');
@@ -290,6 +310,107 @@ function renderTable(hosts) {
     return `<tr><td class="dn">${eName}</td><td><span class="cat-badge ${eCat}">${eCat}</span></td><td class="host" title="${eHost}">${eHost}</td></tr>`;
   }).join('');
   return `<table class="dns-table">${rows}</table>`;
+}
+
+function countryFlag(code) {
+  if (!code || code.length !== 2) return '';
+  const cp = [...code.toUpperCase()].map(c => 0x1F1E6 + c.charCodeAt(0) - 65);
+  return '<span class="popup-country-flag">' + String.fromCodePoint(...cp) + '</span>';
+}
+
+function asnLabel(asn) {
+  const name = ASN_NAMES[String(asn)];
+  return '<span class="popup-asn">AS' + asn + (name ? ' ' + escapeHtml(name) : '') + '</span>';
+}
+
+function renderMxDetail(m) {
+  if (!m.mx || m.mx.length === 0) return '';
+  let html = '<div class="popup-section"><div class="popup-section-title">Incoming mail handled by <span class="popup-section-hint">(MX)</span></div>';
+  html += '<table class="dns-table">';
+  m.mx.forEach(function(host) {
+    const cls = classifyHost(host);
+    html += '<tr><td class="dn">' + escapeHtml(cls.name) + '</td><td><span class="cat-badge ' + escapeHtml(cls.category) + '">' + escapeHtml(cls.category) + '</span></td><td class="host" title="' + escapeHtml(host) + '">' + escapeHtml(host) + '</td></tr>';
+    const ips = m.mx_ips && m.mx_ips[host];
+    if (ips && ips.length > 0) {
+      html += '<tr><td colspan="3"><div class="popup-detail-row"><span class="popup-ip">IP: ' + ips.map(escapeHtml).join(', ') + '</span></div></td></tr>';
+    }
+    const cname = m.mx_cnames && m.mx_cnames[host];
+    if (cname) {
+      html += '<tr><td colspan="3"><div class="popup-detail-row popup-detail">CNAME &rarr; ' + escapeHtml(cname) + '</div></td></tr>';
+    }
+    if (m.mx_ptrs && ips) {
+      ips.forEach(function(ip) {
+        const ptr = m.mx_ptrs[ip];
+        if (ptr) html += '<tr><td colspan="3"><div class="popup-detail-row popup-detail">PTR ' + escapeHtml(ip) + ' &rarr; ' + escapeHtml(ptr) + '</div></td></tr>';
+      });
+    }
+  });
+  html += '</table>';
+  if (m.mx_asns && m.mx_asns.length > 0) {
+    html += '<div class="popup-detail-row" style="margin-top:3px">' + m.mx_asns.map(asnLabel).join(' ') + '</div>';
+  }
+  if (m.mx_geoip_countries && m.mx_geoip_countries.length > 0) {
+    html += '<div class="popup-detail-row">' + m.mx_geoip_countries.map(countryFlag).join(' ') + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderSpfDetail(m) {
+  const delegations = parseSpfDelegations(m.spf);
+  if (delegations.length === 0 && !m.spf) return '';
+  let html = '<div class="popup-section"><div class="popup-section-title">Authorized to send mail <span class="popup-section-hint">(SPF)</span></div>';
+  if (delegations.length > 0) {
+    html += renderTable(delegations);
+  }
+  if (m.spf_asns && m.spf_asns.length > 0) {
+    html += '<div class="popup-detail-row" style="margin-top:3px">' + m.spf_asns.map(asnLabel).join(' ') + '</div>';
+  }
+  if (m.spf) {
+    html += '<div class="popup-raw">' + escapeHtml(m.spf) + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderAdvancedDetails(m) {
+  let sections = '';
+  if (m.gateway) {
+    sections += '<div class="popup-subsection"><div class="popup-subsection-title">Gateway / Relay</div>';
+    sections += '<span class="popup-gateway-badge">' + escapeHtml(m.gateway) + '</span></div>';
+  }
+  if (m.dkim && Object.keys(m.dkim).length > 0) {
+    sections += '<div class="popup-subsection"><div class="popup-subsection-title">DKIM Selectors</div>';
+    Object.entries(m.dkim).forEach(function(e) {
+      sections += '<div class="popup-detail"><span class="popup-kv"><span class="k">' + escapeHtml(e[0]) + '</span> &rarr; ' + escapeHtml(e[1]) + '</span></div>';
+    });
+    sections += '</div>';
+  }
+  if (m.autodiscover && Object.keys(m.autodiscover).length > 0) {
+    sections += '<div class="popup-subsection"><div class="popup-subsection-title">Autodiscover</div>';
+    Object.entries(m.autodiscover).forEach(function(e) {
+      var label = e[0].replace('autodiscover_', '').toUpperCase();
+      sections += '<div class="popup-detail"><span class="popup-kv"><span class="k">' + escapeHtml(label) + '</span> &rarr; ' + escapeHtml(e[1]) + '</span></div>';
+    });
+    sections += '</div>';
+  }
+  if (m.txt_verifications && Object.keys(m.txt_verifications).length > 0) {
+    sections += '<div class="popup-subsection"><div class="popup-subsection-title">TXT Verification</div>';
+    Object.entries(m.txt_verifications).forEach(function(e) {
+      sections += '<div class="popup-detail"><span class="popup-kv"><span class="k">' + escapeHtml(e[0]) + '</span>: ' + escapeHtml(e[1]) + '</span></div>';
+    });
+    sections += '</div>';
+  }
+  if (m.spf_resolved && m.spf_resolved !== m.spf) {
+    sections += '<div class="popup-subsection"><div class="popup-subsection-title">SPF resolved</div>';
+    sections += '<div class="popup-raw">' + escapeHtml(m.spf_resolved) + '</div></div>';
+  }
+  if (m.smtp_banner) {
+    sections += '<div class="popup-subsection"><div class="popup-subsection-title">SMTP Banner</div>';
+    sections += '<div class="popup-raw">' + escapeHtml(m.smtp_banner) + '</div></div>';
+  }
+  if (!sections) return '';
+  return '<details class="popup-details"><summary>Show details</summary>' + sections + '</details>';
 }
 
 const map = L.map('map', {
@@ -435,27 +556,26 @@ async function loadData() {
       const textColor = ['aws', 'google', 'infomaniak', DOMESTIC_ISP_LABEL, 'unknown'].includes(m.provider) ? '#333' : '#fff';
       const label = LABELS[m.provider] || m.provider;
 
-      let mxSection = '';
-      if (m.mx && m.mx.length > 0) {
-        mxSection = `<div class="popup-section"><div class="popup-section-title">Incoming mail handled by <span class="popup-section-hint">(MX)</span></div>${renderTable(m.mx)}</div>`;
-      }
-
-      const spfDelegations = parseSpfDelegations(m.spf);
-      let spfSection = '';
-      if (spfDelegations.length > 0) {
-        spfSection = `<div class="popup-section"><div class="popup-section-title">Authorized to send mail <span class="popup-section-hint">(SPF)</span></div>${renderTable(spfDelegations)}</div>`;
-      }
-
       const eName = escapeHtml(m.name);
       const eDomain = escapeHtml(m.domain || 'unknown');
       const eLabel = escapeHtml(label);
+
+      let reasonHtml = '';
+      if (m.reason) {
+        reasonHtml = '<div class="popup-reason">' + escapeHtml(m.reason) + '</div>';
+      }
+
+      const mxSection = renderMxDetail(m);
+      const spfSection = renderSpfDetail(m);
+      const advancedSection = renderAdvancedDetails(m);
+
       layer.bindPopup(
-        `<div class="info-popup">` +
-        `<strong>${eName}</strong><br>` +
-        `${eDomain} <span class="provider-badge" style="background:${color};color:${textColor}">${eLabel}</span>` +
-        mxSection + spfSection +
-        `</div>`,
-        { maxWidth: 450 }
+        '<div class="info-popup">' +
+        '<strong>' + eName + '</strong><br>' +
+        eDomain + ' <span class="provider-badge" style="background:' + color + ';color:' + textColor + '">' + eLabel + '</span>' +
+        reasonHtml + mxSection + spfSection + advancedSection +
+        '</div>',
+        { maxWidth: 520, maxHeight: 450 }
       );
       layer.on('mouseover', function () { this.setStyle({ weight: 2, color: '#333' }); });
       layer.on('mouseout', function () { this.setStyle({ weight: 0.5, color: '#666' }); });
